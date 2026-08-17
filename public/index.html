@@ -66,12 +66,13 @@
         }
 
 	.card-img {
-    		width: 80px;
-    		height: 80px;
-    		object-fit: cover;
+    		width: 100px;            /* 表示幅に合わせて調整 */
+    		height: 146px;           /* 縦横比 1:1.457 に合わせた高さ設定 */
+    		object-fit: contain;     /* 画像全体を収める指定 */
+    		background-color: #000;  /* 余白ができる場合の背景色（お好みで変更可） */
     		border-radius: 6px;
     		display: block;
-    		margin: 5px 0;
+    		margin: 5px auto;
 	}
 
     </style>
