@@ -137,10 +137,8 @@ io.on('connection', (socket) => {
         // 1. 全員向けのログ（カード名を伏せる）
         broadcastGameState(`P${player.number} がカードを1枚獲得し、メインフェーズに入りました。`);
 
-        // 2. 本人だけに引いたカード名を伝えるログ
-        socket.emit('gameState', {
-            log: `「${randomCard.name}」を獲得しました。`
-        });
+        // 2. 本人の画面（socket）に直接ゲーム状態メッセージを送る
+        socket.emit('message', `【自分のみ】「${randomCard.name}」を獲得しました。`);
     });
 
     socket.on('playCard', ({ instanceId, actionTarget, targetPlayerId, trapSlotNum }) => {
