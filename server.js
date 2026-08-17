@@ -135,11 +135,11 @@ io.on('connection', (socket) => {
 
         gameState.turnPhase = 'MAIN';
         // 1. 全員向けのログ（カード名を伏せる）
-    broadcastGameState(`P${player.number} がカードを1枚獲得し、メインフェーズに入りました。`);
+        broadcastGameState(`P${player.number} がカードを1枚獲得し、メインフェーズに入りました。`);
 
-    // 2. 本人だけに引いたカード名を通知する
-    socket.emit('log', `【山札】「${randomCard.name}」を獲得しました。`);
-    });
+        // 2. 本人だけに引いたカード名を通知する
+        socket.emit('log', `【山札】「${randomCard.name}」を獲得しました。`);
+        });
 
     socket.on('playCard', ({ instanceId, actionTarget, targetPlayerId, trapSlotNum }) => {
         const currentTurnId = gameState.turnOrder[gameState.currentTurnIndex];
