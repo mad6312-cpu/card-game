@@ -341,6 +341,62 @@ io.on('connection', (socket) => {
         });
     });
 
+    socket.on('playDefenseAsAttack', ({ targetPlayerId, trapSlotNum }) => {
+        const currentTurnId = gameState.turnOrder[gameState.currentTurnIndex];
+        if (socket.id !== currentTurnId || gameState.turnPhase !== 'MAIN') {
+            socket.emit('errorMessage', 'メインフェーズでのみ使用できます。');
+            return;
+        }
+
+        const player = gameState.players[socket.id];
+        if (!player.defenseCard) {
+            socket.emit('errorMessage', 'セットされている防御カードがありません。');
+            return;
+        }
+
+        const card = player.defenseCard.card;
+
+        // 木の剣など、攻撃機能を持つカードかチェック
+        if (card.id !== 'wood_sword') {
+            socket.emit('errorMessage', 'この防御カードは攻撃に使用できません。');
+            return;
+        }
+
+        if (!targetPlayerId || !gameState.players[targetPlayerId] || targetPlayerId === socket.id) {
+            socket.emit('errorMessage', '攻撃対象を選択してください。');
+            return;
+        }
+
+        const target = gameState.players[targetPlayerId];
+
+        // 選択不可状態のチェック
+        if (target.immunityCount && target.immunityCount > 0) {
+            socket.emit('errorMessage', `${target.name} は現在「選択不可状態」のため攻撃できません。`);
+            return;
+        }
+
+        if (gameState.round === 1) {
+            const myOrderIndex = gameState.turnOrder.indexOf(socket.id);
+            const targetOrderIndex = gameState.turnOrder.indexOf(targetPlayerId);
+            if (targetOrderIndex > myOrderIndex) {
+                socket.emit('errorMessage', '1巡目は自分より後に行動するプレイヤーを攻撃できません。');
+                return;
+            }
+        }
+
+        // 防御カードを解除（消費）
+        player.defenseCard = null;
+
+        const slot = Number(trapSlotNum) || 1;
+
+        // 攻撃処理の実行（スロットに罠があれば罠バトル、無ければ単体攻撃）
+        if (target.trapSlots && target.trapSlots[slot]) {
+            startTrapBattle(socket.id, targetPlayerId, slot);
+        } else {
+            executeSwordAttack(socket.id, targetPlayerId, slot);
+        }
+    });
+
     socket.on('selectTrapChoice', (choice) => {
         if (!gameState.trapBattle) return;
         const { attackerId, targetId, choices } = gameState.trapBattle;
