@@ -76,7 +76,8 @@ io.on('connection', (socket) => {
         socket.emit('updateCardSettings', cardSettings);
 
         if (Object.keys(gameState.players).length === 4) {
-            startDraftPhase();
+            // デバッグ用: ドラフトフェーズをスキップして固定スコアを付与
+            skipDraftAndStartGame();
         }
     } else {
         socket.emit('full');
@@ -469,6 +470,20 @@ function startDraftPhase() {
     gameState.draft.timer = setTimeout(() => {
         autoFillDraftAndResolve();
     }, 30000);
+}
+
+// デバッグ用：ドラフトフェーズをスキップしてゲームを開始する処理
+function skipDraftAndStartGame() {
+    gameState.draft.phase = 'FINISHED';
+    
+    // P1〜P4に固定得点を付与
+    const scoreMap = { 1: 5000, 2: 1000, 3: -1000, 4: -5000 };
+    Object.values(gameState.players).forEach(p => {
+        p.score += (scoreMap[p.number] || 0);
+        p.draftResolved = true;
+    });
+
+    finalizeDraftAndStartGame();
 }
 
 function autoFillDraftAndResolve() {
