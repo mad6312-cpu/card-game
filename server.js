@@ -9,10 +9,10 @@ const io = new Server(server);
 app.use(express.static('public'));
 
 const CARD_DECK = [
-    { id: 'wood_shield', name: '木の盾', category: 'DEFENSE_TRAP', desc: '防御: 攻撃を1回無効 / 罠: 左中右一致で相手に-3000' },
-    { id: 'wood_shield_set', name: '木の盾セット', category: 'DEFENSE_TRAP', desc: '防御: 攻撃を3回無効 / 罠: 3回まで左中右一致で相手に-3000' },
-    { id: 'wood_sword', name: '木の剣', category: 'DEFENSE_TRAP', desc: '攻撃: 相手に-3000(順位差で成功率変化) / 防御: 1回無効 / 罠: 左中右一致で相手に-3000(1巡で消滅)' },
-    { id: 'gold_bag', name: '金袋', category: 'SCORE', desc: '自分の得点+3000' }
+    { id: 'wood_shield', name: '木の盾', category: 'DEFENSE_TRAP', image: '/images/wood_shield.png', desc: '防御: 攻撃を1回無効 / 罠: 左中右一致で相手に-3000' },
+    { id: 'wood_shield_set', name: '木の盾セット', category: 'DEFENSE_TRAP', image: '/images/wood_shield_set.png', desc: '防御: 攻撃を3回無効 / 罠: 3回まで左中右一致で相手に-3000' },
+    { id: 'wood_sword', name: '木の剣', category: 'DEFENSE_TRAP', image: '/images/wood_sword.png', desc: '攻撃: 相手に-3000(順位差で成功率変化) / 防御: 1回無効 / 罠: 左中右一致で相手に-3000(1巡で消滅)' },
+    { id: 'gold_bag', name: '金袋', category: 'SCORE', image: '/images/gold_bag.png', desc: '自分の得点+3000' }
 ];
 
 // デバッグ用カード有効化フラグ

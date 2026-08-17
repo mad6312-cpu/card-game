@@ -64,6 +64,16 @@
             margin-bottom: 8px;
             border-radius: 4px;
         }
+
+	.card-img {
+    		width: 80px;
+    		height: 80px;
+    		object-fit: cover;
+    		border-radius: 6px;
+    		display: block;
+    		margin: 5px 0;
+	}
+
     </style>
 </head>
 <body>
@@ -346,7 +356,12 @@
                     const hasDefense = !!myPlayer.defenseCard;
 
                     myPlayer.hand.forEach(card => {
-                        html += `<div class="hand-card"><b>${card.name}</b> - ${card.desc}<br>`;
+    			html += `
+        			<div class="hand-card">
+            				<b>${card.name}</b><br>
+            				${card.image ? `<img src="${card.image}" class="card-img" alt="${card.name}">` : ''}
+            				<small>${card.desc}</small><br>
+    			`;
                         
                         if (card.id === 'gold_bag') {
                             html += `<button class="btn" onclick="playCard('${card.instanceId}')">使用する</button>`;
