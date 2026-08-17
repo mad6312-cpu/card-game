@@ -271,7 +271,7 @@ io.on('connection', (socket) => {
         if (socket.id !== currentTurnId) return;
 
         const player = gameState.players[socket.id];
-        if (player.hand.length >= 3) {
+        if (player.hand.length >= 2) {
             gameState.turnPhase = 'DISCARD';
             socket.emit('mustDiscard', { currentCount: player.hand.length });
             broadcastGameState(`P${player.number} は手札削減中...`);
@@ -288,7 +288,7 @@ io.on('connection', (socket) => {
         const cardIndex = player.hand.findIndex(c => String(c.instanceId) === String(instanceId));
         if (cardIndex !== -1) {
             const removed = player.hand.splice(cardIndex, 1)[0];
-            if (player.hand.length <= 2) {
+            if (player.hand.length <= 1) {
                 gameState.turnPhase = 'MAIN';
                 proceedToNextTurn();
             } else {

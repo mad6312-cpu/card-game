@@ -429,7 +429,7 @@
                     }
                 });
             } else if (data.turnPhase === 'DISCARD') {
-                let html = `<h3>手札オーバー！ 2枚以下になるようにカードを捨ててください。</h3>`;
+                let html = `<h3>手札オーバー！ 1枚以下になるようにカードを捨ててください。</h3>`;
                 myPlayer.hand.forEach(card => {
                     html += `
                         <div class="hand-card">
