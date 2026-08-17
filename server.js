@@ -9,10 +9,34 @@ const io = new Server(server);
 app.use(express.static('public'));
 
 const CARD_DECK = [
-    { id: 'wood_shield', name: '木の盾', category: 'DEFENSE_TRAP', desc: '防御: 攻撃を1回無効 / 罠: 左中右一致で相手に-3000' },
-    { id: 'wood_shield_set', name: '木の盾セット', category: 'DEFENSE_TRAP', desc: '防御: 攻撃を3回無効 / 罠: 3回まで左中右一致で相手に-3000' },
-    { id: 'wood_sword', name: '木の剣', category: 'DEFENSE_TRAP', desc: '攻撃: 相手に-3000(順位差で成功率変化) / 防御: 1回無効 / 罠: 左中右一致で相手に-3000(1巡で消滅)' },
-    { id: 'gold_bag', name: '金袋', category: 'SCORE', desc: '自分の得点+3000' }
+    { 
+        id: 'wood_shield', 
+        name: '木の盾', 
+        category: 'DEFENSE_TRAP', 
+        image: '/images/wood_shield.png', // ★画像パスを追加
+        desc: '防御: 攻撃を1回無効 / 罠: 左中右一致で相手に-3000' 
+    },
+    { 
+        id: 'wood_shield_set', 
+        name: '木の盾セット', 
+        category: 'DEFENSE_TRAP', 
+        image: '/images/wood_shield_set.png', // ★画像パスを追加
+        desc: '防御: 攻撃を3回無効 / 罠: 3回まで左中右一致で相手に-3000' 
+    },
+    { 
+        id: 'wood_sword', 
+        name: '木の剣', 
+        category: 'DEFENSE_TRAP', 
+        image: '/images/wood_sword.png', // ★画像パスを追加
+        desc: '攻撃: 相手に-3000(順位差で成功率変化) / 防御: 1回無効 / 罠: 左中右一致で相手に-3000(1巡で消滅)' 
+    },
+    { 
+        id: 'gold_bag', 
+        name: '金袋', 
+        category: 'SCORE', 
+        image: '/images/gold_bag.png', // ★画像パスを追加
+        desc: '自分の得点+3000' 
+    }
 ];
 
 // デバッグ用カード有効化フラグ
@@ -83,7 +107,8 @@ io.on('connection', (socket) => {
             hand: [],
             defenseCard: null,
             trapSlots: { 1: null, 2: null, 3: null },
-            draftResolved: false
+            draftResolved: false,
+            immunityCount: 0 // ★この行を追加（0 = 選択可能状態）
         };
 
         socket.emit('init', { playerNumber: pNum, id: socket.id });
@@ -246,7 +271,26 @@ io.on('connection', (socket) => {
                     placedRound: gameState.round 
                 };
                 player.hand.splice(cardIndex, 1);
-                broadcastGameState(`P${player.number} がスロット ${slot} に罠カード「${card.name}」をセットしました。`);
+
+                // 1. 他の全員だけに送信（カード名を伏せる）
+                socket.broadcast.emit('syncGameState', {
+                    players: gameState.players,
+                    turnOrder: gameState.turnOrder,
+                    currentTurnPlayerId: gameState.turnOrder[gameState.currentTurnIndex],
+                    round: gameState.round,
+                    turnPhase: gameState.turnPhase,
+                    log: `P${player.number} がスロット ${slot} に罠カードをセットしました。`
+                });
+
+                // 2. 本人（socket）だけに送信（カード名を表示する）
+                socket.emit('syncGameState', {
+                    players: gameState.players,
+                    turnOrder: gameState.turnOrder,
+                    currentTurnPlayerId: gameState.turnOrder[gameState.currentTurnIndex],
+                    round: gameState.round,
+                    turnPhase: gameState.turnPhase,
+                    log: `スロット ${slot} に「${card.name}」をセットしました。`
+                });
             }
         }
     });
@@ -276,7 +320,25 @@ io.on('connection', (socket) => {
         const movedCardName = player.defenseCard.card.name;
         player.defenseCard = null;
 
-        broadcastGameState(`P${player.number} が防御カード「${movedCardName}」をスロット ${slot} の罠に移し替えました！`);
+        // 1. 他の全員だけに送信（カード名を伏せる）
+        socket.broadcast.emit('syncGameState', {
+            players: gameState.players,
+            turnOrder: gameState.turnOrder,
+            currentTurnPlayerId: gameState.turnOrder[gameState.currentTurnIndex],
+            round: gameState.round,
+            turnPhase: gameState.turnPhase,
+            log: `P${player.number} が防御カードをスロット ${slot} の罠に移し替えました！`
+        });
+
+        // 2. 本人（socket）だけに送信（カード名を表示する）
+        socket.emit('syncGameState', {
+            players: gameState.players,
+            turnOrder: gameState.turnOrder,
+            currentTurnPlayerId: gameState.turnOrder[gameState.currentTurnIndex],
+            round: gameState.round,
+            turnPhase: gameState.turnPhase,
+            log: `防御カード「${movedCardName}」をスロット ${slot} の罠に移し替えました！`
+        });
     });
 
     socket.on('selectTrapChoice', (choice) => {
@@ -453,6 +515,7 @@ function resolveTrapBattle() {
 
     if (attackerChoice === targetChoice) {
         attacker.score -= 3000;
+        attacker.immunityCount = 2; // ★罠ダメージを受けた攻撃側に「選択不可状態(カウント2)」を付与
         logMsg += `一致！ スロット${slotNum}の罠「${activeTrapObj.card.name}」成功！ 攻撃失敗＆P${attacker.number}に-3000点！`;
 
         activeTrapObj.usesLeft -= 1;

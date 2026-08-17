@@ -66,13 +66,14 @@
         }
 
 	.card-img {
-    		width: 80px;
-    		height: 80px;
-    		object-fit: cover;
-    		border-radius: 6px;
-    		display: block;
-    		margin: 5px 0;
-	}
+        width: 100px;            /* 表示幅に合わせて調整 */
+        height: 146px;           /* 縦横比 1:1.457 に合わせた高さ設定 */
+        object-fit: contain;     /* 画像全体を収める指定 */
+        background-color: #000;  /* 余白ができる場合の背景色（お好みで変更可） */
+        border-radius: 6px;
+        display: block;
+        margin: 5px auto;
+    }
 
     </style>
 </head>
@@ -286,7 +287,6 @@
             const grid = document.getElementById('players-grid');
             grid.innerHTML = '';
 
-            // 順位付けの計算
             const sorted = Object.values(players).sort((a, b) => b.score - a.score);
 
             Object.values(players).forEach(p => {
@@ -297,20 +297,33 @@
                 const box = document.createElement('div');
                 box.className = `player-box ${isTurn ? 'active' : ''}`;
                 
-                let defInfo = p.defenseCard ? `${p.defenseCard.card.name} (残り${p.defenseCard.usesLeft}回)` : 'なし';
+                // 防御カード情報の生成（画像付き）
+                let defInfo = 'なし';
+                if (p.defenseCard) {
+                    const card = p.defenseCard.card;
+                    defInfo = `
+                        <div style="display:flex; align-items:center; gap:5px; margin-top:5px;">
+                            ${card.image ? `<img src="${card.image}" style="width:30px; height:43px; object-fit:contain; border-radius:3px;">` : ''}
+                            <span>${card.name} (残り${p.defenseCard.usesLeft}回)</span>
+                        </div>
+                    `;
+                }
 
+                // 罠スロット情報の生成（画像付き）
                 let trapHtml = '<br>';
                 [1, 2, 3].forEach(slotNum => {
                     const trapObj = p.trapSlots ? p.trapSlots[slotNum] : null;
                     if (trapObj) {
-                        // 設置巡数(placedRound)を取得
                         const roundStr = trapObj.placedRound !== undefined ? ` / ${trapObj.placedRound}巡目` : '';
                         
-                        // 自分自身、または一度発動して公開済み(revealed)の場合はカード名を表示
                         if (isMe || trapObj.revealed) {
-                            trapHtml += `<span class="trap-slot-text" style="color:#e74c3c;">[スロット${slotNum}: ${trapObj.card.name}(残り${trapObj.usesLeft}回${roundStr})]</span><br>`;
+                            trapHtml += `
+                                <div style="display:flex; align-items:center; gap:5px; margin:2px 0;">
+                                    ${trapObj.card.image ? `<img src="${trapObj.card.image}" style="width:25px; height:36px; object-fit:contain; border-radius:3px;">` : ''}
+                                    <span class="trap-slot-text" style="color:#e74c3c;">[スロット${slotNum}: ${trapObj.card.name}(残り${trapObj.usesLeft}回${roundStr})]</span>
+                                </div>
+                            `;
                         } else {
-                            // 他プレイヤーからはカード名を隠し、セット中と巡数のみ表示
                             trapHtml += `<span class="trap-slot-text" style="color:#e67e22;">[スロット${slotNum}: セット中(${roundStr.replace(' / ', '')})]</span><br>`;
                         }
                     } else {
@@ -322,8 +335,8 @@
                     <h4>${p.name} ${isMe ? '(あなた)' : ''} ${isTurn ? '★' : ''} <span style="font-size:0.8em; color:#f1c40f;">(${rank}位)</span></h4>
                     <p>得点: ${p.score}点</p>
                     <p>手札枚数: ${p.hand ? p.hand.length : 0}枚</p>
-                    <p>防御: ${defInfo}</p>
-                    <p><b>罠スロット:</b> ${trapHtml}</p>
+                    <div><b>防御:</b> ${defInfo}</div>
+                    <div><b>罠スロット:</b> ${trapHtml}</div>
                 `;
                 grid.appendChild(box);
             });
@@ -356,12 +369,12 @@
                     const hasDefense = !!myPlayer.defenseCard;
 
                     myPlayer.hand.forEach(card => {
-    			html += `
-        			<div class="hand-card">
-            				<b>${card.name}</b><br>
-            				${card.image ? `<img src="${card.image}" class="card-img" alt="${card.name}">` : ''}
-            				<small>${card.desc}</small><br>
-    			`;
+                        html += `
+                            <div class="hand-card">
+                                <b>${card.name}</b><br>
+                                ${card.image ? `<img src="${card.image}" class="card-img" alt="${card.name}">` : ''}
+                                <small>${card.desc}</small><br>
+                        `;
                         
                         if (card.id === 'gold_bag') {
                             html += `<button class="btn" onclick="playCard('${card.instanceId}')">使用する</button>`;
