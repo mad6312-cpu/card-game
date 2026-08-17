@@ -595,6 +595,10 @@ function proceedToNextTurn() {
     if (gameState.currentTurnIndex >= gameState.turnOrder.length) {
         gameState.currentTurnIndex = 0;
         gameState.round++;
+
+        // ★ 新しい巡目の開始時に、現在のスコア順（1位→2位→3位→4位）でターン順を並び替える
+        const sortedPlayers = Object.values(gameState.players).sort((a, b) => b.score - a.score);
+        gameState.turnOrder = sortedPlayers.map(p => p.id);
     }
 
     if (gameState.round > 10) {
