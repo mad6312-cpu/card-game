@@ -134,10 +134,17 @@ io.on('connection', (socket) => {
         player.hand.push(randomCard);
 
         gameState.turnPhase = 'MAIN';
-        // 1. 全員への送信（カード名は伏せる）
-        broadcastGameState(`P${player.number} がカードを1枚獲得し、メインフェーズに入りました。`);
+        // 1. 他の全員だけに送信（カード名を伏せたログ）
+        socket.broadcast.emit('syncGameState', {
+            players: gameState.players,
+            turnOrder: gameState.turnOrder,
+            currentTurnPlayerId: gameState.turnOrder[gameState.currentTurnIndex],
+            round: gameState.round,
+            turnPhase: gameState.turnPhase,
+            log: `P${player.number} がカードを1枚獲得し、メインフェーズに入りました。`
+        });
 
-        // 2. 本人（socket）への送信（カード名を表示する）
+        // 2. 本人（socket）だけに送信（カード名のみのログ）
         socket.emit('syncGameState', {
             players: gameState.players,
             turnOrder: gameState.turnOrder,
