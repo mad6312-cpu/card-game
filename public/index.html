@@ -358,15 +358,17 @@
 
                                 html += `対象: <select id="target-${card.instanceId}" onchange="updateAttackSlotOptions('${card.instanceId}')">`;
                                 Object.values(data.players).forEach(p => {
-                                    if (p.id !== myId) {
-                                        const pOrderIdx = data.turnOrder.indexOf(p.id);
-                                        if (data.round === 1 && pOrderIdx > myOrderIdx) {
-                                            // 1巡目の後手除外
-                                        } else {
-                                            html += `<option value="${p.id}">${p.name}</option>`;
-                                        }
-                                    }
-                                });
+    					if (p.id !== myId) {
+        					const pOrderIdx = data.turnOrder.indexOf(p.id);
+        					if (data.round === 1 && pOrderIdx > myOrderIdx) {
+            						// 1巡目の後手除外
+        					} else if (p.immunityCount && p.immunityCount > 0) {
+            						html += `<option value="${p.id}" disabled>${p.name} (選択不可残:${p.immunityCount})</option>`;
+        					} else {
+            						html += `<option value="${p.id}">${p.name}</option>`;
+        					}
+    					}
+				});
                                 html += `</select> `;
 
                                 html += `<span id="slot-container-${card.instanceId}">スロット: <select id="slot-${card.instanceId}"></select></span> `;

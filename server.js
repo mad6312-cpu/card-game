@@ -166,6 +166,14 @@ io.on('connection', (socket) => {
                 return;
             }
 
+            const target = gameState.players[targetPlayerId];
+
+            // ★ 選択不可状態のチェック
+            if (target.immunityCount && target.immunityCount > 0) {
+                socket.emit('errorMessage', `${target.name} は現在「選択不可状態」のため攻撃できません。`);
+                return;
+            }
+
             if (gameState.round === 1) {
                 const myOrderIndex = gameState.turnOrder.indexOf(socket.id);
                 const targetOrderIndex = gameState.turnOrder.indexOf(targetPlayerId);
@@ -175,9 +183,7 @@ io.on('connection', (socket) => {
                 }
             }
 
-            const target = gameState.players[targetPlayerId];
             player.hand.splice(cardIndex, 1);
-
             const slot = Number(trapSlotNum) || 1;
 
             if (target.trapSlots && target.trapSlots[slot]) {
@@ -369,7 +375,8 @@ function executeSwordAttack(attackerId, targetId, slotNum) {
         broadcastGameState(logPrefix + `(順位差:${diff} / 成功率:${ratePercent}%) 攻撃は外れた！（ミス）`);
     } else {
         target.score -= 3000;
-        broadcastGameState(logPrefix + `(順位差:${diff} / 成功率:${ratePercent}%) 命中ヒット！ 得点-3000点！`);
+        target.immunityCount = 2; // ★ 木の剣命中により「選択不可状態(カウント2)」を付与
+        broadcastGameState(logPrefix + `(順位差:${diff} / 成功率:${ratePercent}%) 命中ヒット！ 得点-3000点！(P${target.number}は選択不可状態になりました)`);
     }
 }
 
@@ -461,7 +468,8 @@ function resolveTrapBattle() {
                 logMsg += `(順位差:${diff} / 成功率:${ratePercent}%) 攻撃は外れた！（ミス）`;
             } else {
                 target.score -= 3000;
-                logMsg += `(順位差:${diff} / 成功率:${ratePercent}%) 命中！ P${target.number} は -3000点！`;
+                target.immunityCount = 2; // ★ 罠回避後の命中時も付与
+                logMsg += `(順位差:${diff} / 成功率:${ratePercent}%) 命中！ P${target.number} は -3000点！(選択不可状態)`;
             }
         }
     }
@@ -608,12 +616,20 @@ function startPlayerTurn() {
 }
 
 function proceedToNextTurn() {
+    const endingPlayerId = gameState.turnOrder[gameState.currentTurnIndex];
+
+    // ★ ターンを終えたプレイヤー「以外」で、選択不可状態のプレイヤーのカウントを1下げる
+    Object.values(gameState.players).forEach(p => {
+        if (p.id !== endingPlayerId && p.immunityCount && p.immunityCount > 0) {
+            p.immunityCount -= 1;
+        }
+    });
+
     gameState.currentTurnIndex++;
     if (gameState.currentTurnIndex >= gameState.turnOrder.length) {
         gameState.currentTurnIndex = 0;
         gameState.round++;
 
-        // ★ 新しい巡目の開始時に、現在のスコア順（1位→2位→3位→4位）でターン順を並び替える
         const sortedPlayers = Object.values(gameState.players).sort((a, b) => b.score - a.score);
         gameState.turnOrder = sortedPlayers.map(p => p.id);
     }
