@@ -134,7 +134,11 @@ io.on('connection', (socket) => {
         player.hand.push(randomCard);
 
         gameState.turnPhase = 'MAIN';
-        broadcastGameState(`P${player.number} がカード「${randomCard.name}」を獲得し、メインフェーズに入りました。`);
+        // 1. 全員向けのログ（カード名を伏せる）
+    broadcastGameState(`P${player.number} がカードを1枚獲得し、メインフェーズに入りました。`);
+
+    // 2. 本人だけに引いたカード名を通知する
+    socket.emit('log', `【山札】「${randomCard.name}」を獲得しました。`);
     });
 
     socket.on('playCard', ({ instanceId, actionTarget, targetPlayerId, trapSlotNum }) => {
