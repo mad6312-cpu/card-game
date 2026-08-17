@@ -21,25 +21,37 @@
             padding: 8px 12px;
         }
 
-        /* モーダル汎用 */
+        /* モーダル汎用（画面の絶対中央配置） */
         .modal {
             display: none;
             position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85);
+            top: 0; 
+            left: 0; 
+            width: 100vw; 
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.85);
             z-index: 1000;
-            text-align: center;
-            padding-top: 80px;
+            /* 縦横中央に要素を寄せる Flexbox 設定 */
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            padding: 20px;
         }
+
+        /* JavaScript等でモーダルを表示する際のクラス */
+        .modal[style*="display: block"] {
+            display: flex !important;
+        }
+
         .modal-content {
             background: #34495e;
-            display: inline-block;
             padding: 25px;
             border-radius: 12px;
             border: 2px solid #bdc3c7;
             max-width: 500px;
-            width: 90%;
+            width: 100%;
             text-align: left;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
         }
 
         /* 罠モーダル特有 */
@@ -60,21 +72,21 @@
             border-radius: 4px;
         }
 
-        /* 麻雀風卓レイアウト */
+        /* 麻雀風卓レイアウト（手札の高さに合わせて自動伸縮するように修正） */
         .mj-table {
             display: grid;
             grid-template-columns: 220px 1fr 220px;
-            grid-template-rows: 140px 1fr 260px;
-            grid-template-areas:
+            grid-template-rows: auto 1fr auto; /* 柔軟に高さが伸縮するよう調整 */
+            grid-template-areas: 
                 "left   top    right"
                 "left   center right"
-                "bottom bottom bottom";
+                "bottom bottom bottom"; /* 領域の位置関係を指定 */
             gap: 10px;
             background: #1e3799;
             padding: 15px;
             border-radius: 12px;
             box-shadow: inset 0 0 20px rgba(0,0,0,0.6);
-            min-height: 650px;
+            min-height: 720px;
         }
 
         /* 各座席の配置 */
@@ -255,13 +267,20 @@
                 <div class="seat-right" id="seat-right"></div>
 
                 <!-- 卓の中央（ログ＆ドロップエリア） -->
+                <!-- 卓の中央（ログ＆ドロップエリア） -->
                 <div class="table-center" 
                      ondragover="handleCenterDragOver(event)" 
                      ondragenter="handleCenterDragEnter(event)" 
                      ondragleave="handleCenterDragLeave(event)" 
                      ondrop="handleCenterDrop(event)">
                     <div id="round-info" style="font-size: 1.1em; font-weight: bold; text-align: center; color: #f1c40f;"></div>
-                    <div id="log-box" style="height: 110px; overflow-y: auto; background: #000; padding: 8px; font-family: monospace; font-size: 0.8em; border-radius: 4px; margin: 5px 0;"></div>
+                    
+                    <!-- ログとターン終了ボタンの横並びエリア -->
+                    <div style="display: flex; gap: 8px; align-items: stretch; margin: 5px 0;">
+                        <div id="log-box" style="flex: 1; height: 110px; overflow-y: auto; background: #000; padding: 8px; font-family: monospace; font-size: 0.8em; border-radius: 4px;"></div>
+                        <div id="center-end-turn-btn" style="display: flex; align-items: center;"></div>
+                    </div>
+
                     <div id="center-status" style="font-size: 0.85em; text-align: center; color: #38bdf8; font-weight: bold;">
                         ここにカードをドラッグ＆ドロップして使用
                     </div>
@@ -273,10 +292,36 @@
                 <!-- 自分（手前） -->
                 <div class="seat-bottom" id="seat-bottom"></div>
             </div>
-
-            <!-- システム操作エリア（ターン終了・手札超過破棄など） -->
-            <div id="action-panel" class="card" style="margin-top: 15px; text-align: center;"></div>
         </div>
+
+        <!-- 手札オーバー破棄選択モーダル -->
+    <div id="discard-modal" class="modal">
+        <div class="modal-content" style="text-align:center; max-width:600px;">
+            <h3 style="margin-top:0; color:#e74c3c;">★ 手札オーバー！</h3>
+            <p style="margin: 10px 0; font-size: 0.95em; color:#cbd5e1;">
+                1枚以下になるように捨てるカードを選択してください。
+            </p>
+            <div id="discard-cards-container" style="display:flex; gap:15px; justify-content:center; flex-wrap:wrap; margin-top:15px;"></div>
+        </div>
+    </div>
+        
+        <!-- ターン開始ボーナス選択モーダル -->
+    <div id="bonus-choice-modal" class="modal">
+        <div class="modal-content" style="text-align:center; max-width:400px;">
+            <h3 style="margin-top:0; color:#f1c40f;">★ あなたのターンです</h3>
+            <p style="margin: 15px 0; font-size: 1.05em; line-height: 1.5;">
+                ターン開始ボーナス (+3000点) を獲得しますか？
+            </p>
+            <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
+                <button class="btn" style="background:#27ae60; padding:12px; font-weight:bold;" onclick="chooseBonusChoice(true)">
+                    ボーナスを受け取る (+3000点 & カード獲得)
+                </button>
+                <button class="btn" style="background:#7f8c8d; padding:10px;" onclick="chooseBonusChoice(false)">
+                    受け取らない (カードのみ獲得)
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- カード操作モーダル（ドロップ時に表示） -->
     <div id="drop-action-modal" class="modal">
@@ -618,13 +663,23 @@
                     handHtml += `</div>`;
                 }
 
+                // ★持ち点表示用HTMLの動的生成を追加
+                let scoreDisplayHtml = '';
+                if (p.scoreChange && p.scoreChange !== 0) {
+                    const color = p.scoreChange > 0 ? '#2ecc71' : '#e74c3c'; // プラス:緑 / マイナス:赤
+                    const sign = p.scoreChange > 0 ? '+' : '';
+                    scoreDisplayHtml = `持ち点: ${p.prevScore.toLocaleString()}点<span style="color: ${color}; font-weight: bold;">${sign}${p.scoreChange.toLocaleString()}点</span>→${p.score.toLocaleString()}点`;
+                } else {
+                    scoreDisplayHtml = `持ち点: ${p.score.toLocaleString()}点`;
+                }
+
                 box.innerHTML = `
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <strong>${posName} P${p.number} ${isMe ? '(あなた)' : ''} ${isTurn ? '★' : ''}</strong>
                         <span style="color:#f1c40f; font-weight:bold;"> ${rank}位</span>
                     </div>
                     <div style="font-size: 1.1em; font-weight: bold; margin: 3px 0; color: #38bdf8;">
-                        持ち点: ${p.score}点
+                        ${scoreDisplayHtml} <!-- ★ここを修正（直接 p.score を出していたのを変数に変更） -->
                     </div>
                     <div>手札: <b>${p.hand ? p.hand.length : 0}</b> 枚 | 防御: ${defInfo}</div>
                     <div style="margin-top:3px;"><b>罠:</b> ${trapHtml}</div>
@@ -635,41 +690,59 @@
             });
         }
 
+        function chooseBonusChoice(accept) {
+            socket.emit('chooseBonus', accept);
+            document.getElementById('bonus-choice-modal').style.display = 'none';
+        }
+
         function updateTurnControls(data) {
-            const panel = document.getElementById('action-panel');
+            const roundInfo = document.getElementById('round-info');
+            const endTurnBtnContainer = document.getElementById('center-end-turn-btn');
+            const bonusModal = document.getElementById('bonus-choice-modal');
+            const discardModal = document.getElementById('discard-modal');
+            
             const isMyTurn = (data.currentTurnPlayerId === myId);
             const myPlayer = data.players[myId];
 
+            // 初期化（panel関連の処理を削除）
+            roundInfo.innerHTML = `第 ${data.round} 巡目 / 全10巡`;
+            endTurnBtnContainer.innerHTML = '';
+            if (bonusModal) bonusModal.style.display = 'none';
+            if (discardModal) discardModal.style.display = 'none';
+
             if (!isMyTurn) {
-                panel.innerHTML = '<p style="color:#94a3b8; margin:0;">他のプレイヤーのターンです...</p>';
                 return;
             }
 
             if (data.turnPhase === 'BONUS_CHOICE') {
-                panel.innerHTML = `
-                    <h3 style="margin:5px 0;">あなたのターンです（ボーナス選択）</h3>
-                    <p style="margin:5px 0;">ターン開始ボーナス (+3000点) を獲得しますか？</p>
-                    <button class="btn" onclick="socket.emit('chooseBonus', true)">ボーナスを受け取る (+3000点 & カード獲得)</button>
-                    <button class="btn" onclick="socket.emit('chooseBonus', false)">受け取らない (カードのみ獲得)</button>
-                `;
+                if (bonusModal) bonusModal.style.display = 'block';
+                roundInfo.innerHTML += ` <span style="color:#f1c40f;">【ボーナス選択中】</span>`;
             } else if (data.turnPhase === 'MAIN') {
-                panel.innerHTML = `
-                    <p style="color:#f1c40f; font-weight:bold; margin:5px 0;">
-                        ★ あなたのターンです。手札や防御カードを画面中央へドラッグ＆ドロップして操作してください。
-                    </p>
-                    <button class="btn" style="background:#2980b9;" onclick="socket.emit('endTurn')">ターンを終了する</button>
+                roundInfo.innerHTML += `<br><span style="color:#f1c40f; font-size: 0.85em;">★ あなたのターンです。手札や防御カードを画面中央へドラッグ＆ドロップして操作してください。</span>`;
+                
+                endTurnBtnContainer.innerHTML = `
+                    <button class="btn" style="background:#2980b9; height:100%; white-space:nowrap; margin:0; padding:0 12px; font-weight:bold;" onclick="socket.emit('endTurn')">
+                        ターンを<br>終了する
+                    </button>
                 `;
             } else if (data.turnPhase === 'DISCARD') {
-                let html = `<h3 style="margin:5px 0; color:#e74c3c;">手札オーバー！ 1枚以下になるようにカードを捨ててください。</h3>`;
-                myPlayer.hand.forEach(card => {
-                    html += `
-                        <div style="display:inline-block; margin:5px; padding:5px; background:#1a252f; border-radius:4px;">
-                            <b>${card.name}</b> 
-                            <button class="btn" style="background:#e74c3c; padding:4px 8px;" onclick="socket.emit('discardCard', '${card.instanceId}')">捨てる</button>
-                        </div>
-                    `;
-                });
-                panel.innerHTML = html;
+                roundInfo.innerHTML += ` <span style="color:#e74c3c;">【手札オーバー】</span>`;
+                
+                // ディスカードモーダルの要素を取得して中身を生成
+                const discardContainer = document.getElementById('discard-cards-container');
+                if (discardContainer && myPlayer && myPlayer.hand) {
+                    discardContainer.innerHTML = '';
+                    myPlayer.hand.forEach(card => {
+                        const itemDiv = document.createElement('div');
+                        itemDiv.style.cssText = 'display:flex; flex-direction:column; align-items:center; gap:8px; background:#1a252f; padding:10px; border-radius:8px; border:1px solid #475569;';
+                        itemDiv.innerHTML = `
+                            <img src="${card.image}" style="width:90px; height:130px; object-fit:contain; border-radius:4px; background:#000;" alt="カード">
+                            <button class="btn" style="background:#e74c3c; width:100%; margin:0; padding:6px 0; font-weight:bold;" onclick="socket.emit('discardCard', '${card.instanceId}')">捨てる</button>
+                        `;
+                        discardContainer.appendChild(itemDiv);
+                    });
+                    if (discardModal) discardModal.style.display = 'block';
+                }
             }
         }
 

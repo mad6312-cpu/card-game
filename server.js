@@ -104,11 +104,13 @@ io.on('connection', (socket) => {
             number: pNum,
             name: `P${pNum}`,
             score: 25000,
+            prevScore: 25000, // ★追加
+            scoreChange: 0,   // ★追加
             hand: [],
             defenseCard: null,
             trapSlots: { 1: null, 2: null, 3: null },
             draftResolved: false,
-            immunityCount: 0 // ★この行を追加（0 = 選択可能状態）
+            immunityCount: 0
         };
 
         socket.emit('init', { playerNumber: pNum, id: socket.id });
@@ -152,7 +154,7 @@ io.on('connection', (socket) => {
 
         const player = gameState.players[socket.id];
 
-        if (acceptBonus) player.score += 3000;
+        if (acceptBonus) applyScoreChange(player, 3000); // ★変更
 
         // ON/OFF設定および重複所持チェックを適用してカードを付与
         const randomCard = getRandomAvailableCard(player);
@@ -181,6 +183,8 @@ io.on('connection', (socket) => {
     });
 
     socket.on('playCard', ({ instanceId, actionTarget, targetPlayerId, trapSlotNum }) => {
+        resetScoreChanges(); // ★冒頭に追加（前回の変動表示を消す）
+        
         const currentTurnId = gameState.turnOrder[gameState.currentTurnIndex];
         if (socket.id !== currentTurnId || gameState.turnPhase !== 'MAIN') {
             socket.emit('errorMessage', 'あなたのターンのメインフェーズではありません。');
@@ -198,7 +202,7 @@ io.on('connection', (socket) => {
 
         // 1. 金袋の使用
         if (card.id === 'gold_bag') {
-            player.score += 3000;
+            applyScoreChange(player, 3000); // ★変更
             player.hand.splice(cardIndex, 1);
             broadcastGameState(`P${player.number} が「金袋」を使用し、+3000点獲得しました！`);
 
@@ -426,6 +430,8 @@ io.on('connection', (socket) => {
     });
 
     socket.on('endTurn', () => {
+        resetScoreChanges(); // ★冒頭に追加
+        
         const currentTurnId = gameState.turnOrder[gameState.currentTurnIndex];
         if (socket.id !== currentTurnId) return;
 
@@ -510,7 +516,7 @@ function executeSwordAttack(attackerId, targetId, slotNum) {
     if (!isHit) {
         broadcastGameState(logPrefix + `(順位差:${diff} / 成功率:${ratePercent}%) 攻撃は外れた！（ミス）`);
     } else {
-        target.score -= 3000;
+        applyScoreChange(target, -3000); // ★変更
         target.immunityCount = 2; // ★ 木の剣命中により「選択不可状態(カウント2)」を付与
         broadcastGameState(logPrefix + `(順位差:${diff} / 成功率:${ratePercent}%) 命中ヒット！ 得点-3000点！(P${target.number}は選択不可状態になりました)`);
     }
@@ -570,7 +576,7 @@ function resolveTrapBattle() {
     const activeTrapObj = target.trapSlots[slotNum];
 
     if (attackerChoice === targetChoice) {
-        attacker.score -= 3000;
+        applyScoreChange(attacker, -3000); // ★変更
         attacker.immunityCount = 2; // ★罠ダメージを受けた攻撃側に「選択不可状態(カウント2)」を付与
         logMsg += `一致！ スロット${slotNum}の罠「${activeTrapObj.card.name}」成功！ 攻撃失敗＆P${attacker.number}に-3000点！`;
 
@@ -604,7 +610,7 @@ function resolveTrapBattle() {
             if (!isHit) {
                 logMsg += `(順位差:${diff} / 成功率:${ratePercent}%) 攻撃は外れた！（ミス）`;
             } else {
-                target.score -= 3000;
+                applyScoreChange(target, -3000); // ★変更
                 target.immunityCount = 2; // ★ 罠回避後の命中時も付与
                 logMsg += `(順位差:${diff} / 成功率:${ratePercent}%) 命中！ P${target.number} は -3000点！(選択不可状態)`;
             }
@@ -790,6 +796,22 @@ function broadcastGameState(logMessage = '') {
         turnPhase: gameState.turnPhase,
         log: logMessage
     });
+}
+
+// ★追加: 全プレイヤーの得点変化表示をリセットする
+function resetScoreChanges() {
+    Object.values(gameState.players).forEach(p => {
+        p.scoreChange = 0;
+        p.prevScore = p.score;
+    });
+}
+
+// ★追加: 得点を変更し、変化量を記録する
+function applyScoreChange(player, amount) {
+    resetScoreChanges(); // 新しい変動があったら全プレイヤーの過去表示をクリア
+    player.prevScore = player.score;
+    player.scoreChange = amount;
+    player.score += amount;
 }
 
 server.listen(3000, () => console.log('Server running on http://localhost:3000'));
