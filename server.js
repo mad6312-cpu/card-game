@@ -134,11 +134,18 @@ io.on('connection', (socket) => {
         player.hand.push(randomCard);
 
         gameState.turnPhase = 'MAIN';
-        // 1. 全員向けのログ（カード名を伏せる）
+        // 1. 全員への送信（カード名は伏せる）
         broadcastGameState(`P${player.number} がカードを1枚獲得し、メインフェーズに入りました。`);
 
-        // 2. 本人の画面（socket）に直接ゲーム状態メッセージを送る
-        socket.emit('message', `【自分のみ】「${randomCard.name}」を獲得しました。`);
+        // 2. 本人（socket）への送信（カード名を表示する）
+        socket.emit('syncGameState', {
+            players: gameState.players,
+            turnOrder: gameState.turnOrder,
+            currentTurnPlayerId: gameState.turnOrder[gameState.currentTurnIndex],
+            round: gameState.round,
+            turnPhase: gameState.turnPhase,
+            log: `「${randomCard.name}」を獲得しました。`
+        });
     });
 
     socket.on('playCard', ({ instanceId, actionTarget, targetPlayerId, trapSlotNum }) => {
