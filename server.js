@@ -44,8 +44,23 @@ function createInitialState() {
 let gameState = createInitialState();
 
 // 有効なカードからランダムに1枚抽出
-function getRandomAvailableCard() {
-    const availableCards = CARD_DECK.filter(c => cardSettings[c.id] !== false);
+function getRandomAvailableCard(player) {
+    let availableCards = CARD_DECK.filter(c => cardSettings[c.id] !== false);
+
+    if (player) {
+        // 木の盾セットを既に「手札」「防御」「罠」のどこかに持っているかチェック
+        const hasShieldSetInHand = player.hand && player.hand.some(c => c.id === 'wood_shield_set');
+        const hasShieldSetInDefense = player.defenseCard && player.defenseCard.card && player.defenseCard.card.id === 'wood_shield_set';
+        const hasShieldSetInTrap = player.trapSlots && Object.values(player.trapSlots).some(slot => slot && slot.card && slot.card.id === 'wood_shield_set');
+
+        const hasWoodShieldSet = hasShieldSetInHand || hasShieldSetInDefense || hasShieldSetInTrap;
+
+        // 既に持っている場合はドロー候補（pool）から「木の盾セット」を除外する
+        if (hasWoodShieldSet) {
+            availableCards = availableCards.filter(c => c.id !== 'wood_shield_set');
+        }
+    }
+
     const pool = availableCards.length > 0 ? availableCards : CARD_DECK;
     const template = pool[Math.floor(Math.random() * pool.length)];
     return {
@@ -110,14 +125,16 @@ io.on('connection', (socket) => {
         const currentTurnId = gameState.turnOrder[gameState.currentTurnIndex];
         if (socket.id !== currentTurnId || gameState.turnPhase !== 'BONUS_CHOICE') return;
 
-        if (acceptBonus) gameState.players[socket.id].score += 3000;
+        const player = gameState.players[socket.id];
 
-        // ON/OFF設定が適用されたカードを付与
-        const randomCard = getRandomAvailableCard();
-        gameState.players[socket.id].hand.push(randomCard);
+        if (acceptBonus) player.score += 3000;
+
+        // ON/OFF設定および重複所持チェックを適用してカードを付与
+        const randomCard = getRandomAvailableCard(player);
+        player.hand.push(randomCard);
 
         gameState.turnPhase = 'MAIN';
-        broadcastGameState(`P${gameState.players[socket.id].number} がカード「${randomCard.name}」を獲得し、メインフェーズに入りました。`);
+        broadcastGameState(`P${player.number} がカード「${randomCard.name}」を獲得し、メインフェーズに入りました。`);
     });
 
     socket.on('playCard', ({ instanceId, actionTarget, targetPlayerId, trapSlotNum }) => {
