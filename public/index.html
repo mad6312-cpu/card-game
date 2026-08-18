@@ -154,12 +154,59 @@
             border-width: 3px;
         }
 
+        /* 防御カードのミニアイコン（ホバーモーションを追加） */
         .mini-card-icon {
             width: 22px;
             height: 32px;
             object-fit: contain;
             border-radius: 2px;
             vertical-align: middle;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        /* ホバー時のモーション（Y軸移動と枠線色変更） */
+        .mini-card-icon:hover {
+            transform: translateY(-3px);
+            border-color: #f1c40f;
+        }
+
+        /* 防御カード用ラッパーとツールチップ */
+        .def-card-wrapper {
+            position: relative;
+            display: inline-block;
+            vertical-align: middle;
+            z-index: 1;
+        }
+
+        .def-card-wrapper:hover {
+            z-index: 10;
+        }
+
+        .def-card-wrapper .card-tooltip {
+            visibility: hidden;
+            opacity: 0;
+            position: absolute;
+            bottom: 115%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            background: rgba(15, 23, 42, 0.98);
+            color: #f8fafc;
+            border: 1px solid #f1c40f;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 0.8em;
+            line-height: 1.4;
+            text-align: left;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.8);
+            z-index: 9999;
+            transition: opacity 0.2s ease, visibility 0.2s ease;
+            pointer-events: none;
+        }
+
+        .def-card-wrapper:hover .card-tooltip {
+            visibility: visible;
+            opacity: 1;
         }
 
         .draggable-def-card {
@@ -498,12 +545,20 @@
                 if (p.defenseCard) {
                     const card = p.defenseCard.card;
                     const clickAttr = isMe ? `onclick="openDropCardModal('DEFENSE', null)"` : '';
+
+                    // 自分・対戦相手問わず、防御カードにマウスオーバーした際にツールチップとホバーモーションを表示
                     defInfo = `
-                        <span style="color:#2ecc71;">
-                            ${card.image ? `<img src="${card.image}" class="mini-card-icon ${isMe ? 'draggable-def-card' : ''}" ${clickAttr} title="${isMe ? 'クリックして操作' : ''}">` : ''}
-                            ${card.name} (${p.defenseCard.usesLeft}回)
-                        </span>
-                    `;
+        <span style="color:#2ecc71;">
+            <div class="def-card-wrapper">
+                ${card.image ? `<img src="${card.image}" class="mini-card-icon ${isMe ? 'draggable-def-card' : ''}" ${clickAttr}>` : ''}
+                <div class="card-tooltip">
+                    <div style="font-weight: bold; color: #f1c40f; margin-bottom: 3px;">${card.name}</div>
+                    <div>${card.desc}</div>
+                </div>
+            </div>
+            ${card.name} (${p.defenseCard.usesLeft}回)
+        </span>
+    `;
                 }
 
                 const posNames = ['【自分】', '【下家】', '【対面】', '【上家】'];
