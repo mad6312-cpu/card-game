@@ -28,7 +28,7 @@ const CARD_DECK = [
         name: '木の剣',
         category: 'ATTACK',
         image: '/images/wood_sword.png',
-        desc: '攻撃: 順位差で成功率変化(-3000/命中時相手は選択不可) / 防御: 攻撃を1度無効'
+        desc: '攻撃: 自分より上位なら単体(5000点差以内/成功率1/2)、下位なら全員順次判定(成功率1/2) / 防御: 攻撃を1度無効'
     },
     {
         id: 'gold_bag',
@@ -202,49 +202,59 @@ io.on('connection', (socket) => {
 
             // 2. 攻撃アクション
         } else if (actionTarget === 'ATTACK') {
-            if (!targetPlayerId || !gameState.players[targetPlayerId] || targetPlayerId === socket.id) {
+            if (!targetPlayerId) {
                 socket.emit('errorMessage', '攻撃対象を選択してください。');
                 return;
             }
 
-            const target = gameState.players[targetPlayerId];
-            if (target.immunityCount && target.immunityCount > 0) {
-                socket.emit('errorMessage', `${target.name} は現在「選択不可状態」のため攻撃できません。`);
-                return;
-            }
-
-            if (gameState.round === 1) {
-                const myOrderIndex = gameState.turnOrder.indexOf(socket.id);
-                const targetOrderIndex = gameState.turnOrder.indexOf(targetPlayerId);
-                if (targetOrderIndex > myOrderIndex) {
-                    socket.emit('errorMessage', '1巡目は自分より後に行動するプレイヤーを攻撃できません。');
+            // 木の剣かつ全体攻撃(ALL_LOWER)の場合は単体対象の存在・選択不可チェックをスキップ
+            if (card.id === 'wood_sword' && targetPlayerId === 'ALL_LOWER') {
+                player.hand.splice(cardIndex, 1);
+                executeWoodSwordAttack(socket.id, targetPlayerId);
+            } else {
+                const target = gameState.players[targetPlayerId];
+                if (!target) {
+                    socket.emit('errorMessage', '対象となるプレイヤーが見つかりません。');
                     return;
                 }
-            }
 
-            // 木の盾セットの攻撃（手札から）
-            if (card.id === 'wood_shield_set') {
-                let cardObj = player.hand[cardIndex];
-                if (!cardObj.usesLeft) cardObj.usesLeft = 3;
+                if (target.immunityCount && target.immunityCount > 0) {
+                    socket.emit('errorMessage', `${target.name} は現在「選択不可状態」のため攻撃できません。`);
+                    return;
+                }
 
-                const requestedCount = Math.min(Math.max(Number(attackCount) || 1, 1), 3);
-                const actualAttacks = Math.min(requestedCount, cardObj.usesLeft);
-
-                executeShieldSetAttack(socket.id, targetPlayerId, cardObj, actualAttacks, () => {
-                    // 残り使用回数が0になった場合、instanceId を検索して正確に手札から削除
-                    if (cardObj.usesLeft <= 0) {
-                        const idx = player.hand.findIndex(c => String(c.instanceId) === String(cardObj.instanceId));
-                        if (idx !== -1) {
-                            player.hand.splice(idx, 1);
-                        }
+                if (gameState.round === 1) {
+                    const myOrderIndex = gameState.turnOrder.indexOf(socket.id);
+                    const targetOrderIndex = gameState.turnOrder.indexOf(targetPlayerId);
+                    if (targetOrderIndex > myOrderIndex) {
+                        socket.emit('errorMessage', '1巡目は自分より後に行動するプレイヤーを攻撃できません。');
+                        return;
                     }
-                    // 攻撃完了後に最新のゲーム状態（更新された手札）を全員に同期・送信
-                    broadcastGameState();
-                });
-            } else {
-                // 木の剣または木の盾の単体攻撃（手札から）
-                player.hand.splice(cardIndex, 1);
-                executeStandardAttack(socket.id, targetPlayerId, card.id);
+                }
+
+                if (card.id === 'wood_sword') {
+                    player.hand.splice(cardIndex, 1);
+                    executeWoodSwordAttack(socket.id, targetPlayerId);
+                } else if (card.id === 'wood_shield_set') {
+                    let cardObj = player.hand[cardIndex];
+                    if (!cardObj.usesLeft) cardObj.usesLeft = 3;
+
+                    const requestedCount = Math.min(Math.max(Number(attackCount) || 1, 1), 3);
+                    const actualAttacks = Math.min(requestedCount, cardObj.usesLeft);
+
+                    executeShieldSetAttack(socket.id, targetPlayerId, cardObj, actualAttacks, () => {
+                        if (cardObj.usesLeft <= 0) {
+                            const idx = player.hand.findIndex(c => String(c.instanceId) === String(cardObj.instanceId));
+                            if (idx !== -1) {
+                                player.hand.splice(idx, 1);
+                            }
+                        }
+                        broadcastGameState();
+                    });
+                } else {
+                    player.hand.splice(cardIndex, 1);
+                    executeStandardAttack(socket.id, targetPlayerId, card.id);
+                }
             }
 
             // 3. 防御カードのセット
@@ -441,6 +451,108 @@ function executeStandardAttack(attackerId, targetId, cardId) {
     applyScoreChange(target, -3000);
     target.immunityCount = 2; // 選択不可状態
     broadcastGameState(logPrefix + rateText + `命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました)`);
+}
+
+function executeWoodSwordAttack(attackerId, targetTypeOrId) {
+    const attacker = gameState.players[attackerId];
+    const sorted = Object.values(gameState.players).sort((a, b) => b.score - a.score);
+    const attackerRank = sorted.findIndex(p => p.id === attackerId) + 1;
+
+    // --- CASE 1: 自分より順位が下のプレイヤー全員への攻撃 ---
+    if (targetTypeOrId === 'ALL_LOWER') {
+        const lowerPlayers = sorted.slice(attackerRank); // 自分より順位が下のプレイヤー配列
+
+        if (lowerPlayers.length === 0) {
+            broadcastGameState(`P${attacker.number} が「木の剣」を使用しましたが、自分より下の順位のプレイヤーがいませんでした。`);
+            return;
+        }
+
+        let currentIdx = 0;
+
+        function processNextLowerTarget() {
+            if (currentIdx >= lowerPlayers.length) {
+                // 全員命中・防御判定をスルーした場合もカード破棄（終了）
+                return;
+            }
+
+            const target = lowerPlayers[currentIdx];
+            let logPrefix = `P${attacker.number} の「木の剣」攻撃 (対象: P${target.number})！ `;
+
+            // 1. 命中判定（1/2）
+            const isHit = Math.random() < 0.5;
+
+            if (!isHit) {
+                // ミスの場合、攻撃は中断されず次のプレイヤーへ
+                broadcastGameState(logPrefix + `攻撃は外れた！（ミス）`);
+                currentIdx++;
+                setTimeout(processNextLowerTarget, 500);
+                return;
+            }
+
+            // 2. 命中した場合、防御カードチェック
+            if (target.defenseCard) {
+                target.defenseCard.usesLeft -= 1;
+                let msg = logPrefix + `命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
+                if (target.defenseCard.usesLeft <= 0) {
+                    target.defenseCard = null;
+                    msg += '（相手の防御カード破棄）';
+                }
+                broadcastGameState(msg);
+                return; // 防御発生のため攻撃中断
+            }
+
+            // 3. 防御なし：ダメージ適用および選択不可状態付与
+            applyScoreChange(target, -3000);
+            target.immunityCount = 2; // 自分以外の対戦相手3人×2ターン経過で解除
+            broadcastGameState(logPrefix + `命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました)`);
+            return; // ダメージ発生のため攻撃中断
+        }
+
+        processNextLowerTarget();
+        return;
+    }
+
+    // --- CASE 2: 自分より順位が上のプレイヤー単体への攻撃 ---
+    const target = gameState.players[targetTypeOrId];
+    if (!target) return;
+
+    const targetRank = sorted.findIndex(p => p.id === target.id) + 1;
+
+    // バリデーションチェック
+    if (attackerRank <= targetRank) {
+        socket.emit('errorMessage', '自分より下の順位のプレイヤーは個別に対象に指定できません。');
+        return;
+    }
+
+    if ((target.score - attacker.score) > 5000) {
+        socket.emit('errorMessage', '得点差が5000点を超えるプレイヤーは攻撃対象に選択できません。');
+        return;
+    }
+
+    let logPrefix = `P${attacker.number} が P${target.number} に「木の剣」で攻撃！ `;
+
+    // 命中判定（1/2）
+    const isHit = Math.random() < 0.5;
+
+    if (!isHit) {
+        broadcastGameState(logPrefix + `(成功率:50%) 攻撃は外れた！（ミス）`);
+        return;
+    }
+
+    if (target.defenseCard) {
+        target.defenseCard.usesLeft -= 1;
+        let msg = logPrefix + `(成功率:50%) 命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
+        if (target.defenseCard.usesLeft <= 0) {
+            target.defenseCard = null;
+            msg += '（相手の防御カード破棄）';
+        }
+        broadcastGameState(msg);
+        return;
+    }
+
+    applyScoreChange(target, -3000);
+    target.immunityCount = 2;
+    broadcastGameState(logPrefix + `(成功率:50%) 命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました)`);
 }
 
 // 木の盾セットのまとめ攻撃処理

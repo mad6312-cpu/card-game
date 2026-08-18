@@ -566,7 +566,7 @@
 
                 let handHtml = '';
                 if (isMe) {
-                    handHtml += `<div style="margin-top:6px;"><b>手札 (クリックして使用):</b>`;
+                    handHtml += `<div style="margin-top:6px;"><b>手札 (クリックして使用)</b>`;
                     if (p.hand && p.hand.length > 0) {
                         handHtml += `<div class="my-hand-container">`;
                         p.hand.forEach(card => {
@@ -646,7 +646,7 @@
 
                 endTurnBtnContainer.innerHTML = `
                     <button class="btn" style="background:#2980b9; height:100%; white-space:nowrap; margin:0; padding:0 12px; font-weight:bold;" onclick="socket.emit('endTurn')">
-                        ターンを<br>終了する
+                        ターン終了
                     </button>
                 `;
             } else if (data.turnPhase === 'DISCARD') {
@@ -738,22 +738,67 @@
                 if (card.id === 'gold_bag') {
                     html += `<button class="btn" style="background:#27ae60; font-size:1.05em; width:100%;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">使用する (+3000点)</button>`;
                 } else {
-                    // 1. 攻撃機能（全攻撃/防御カードが対応）
+                    // 1. 攻撃機能
                     const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
                     html += `<div style="background:#1a252f; padding:10px; border-radius:6px; margin-bottom:10px; text-align:left;">`;
                     html += `<b style="color:#e74c3c;">⚔ 攻撃する:</b><br>`;
                     html += `対象: <select id="drop-target-${card.instanceId}">`;
-                    Object.values(latestGameState.players).forEach(p => {
-                        if (p.id !== myId) {
-                            const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
-                            if (latestGameState.round === 1 && pOrderIdx > myOrderIdx) {
-                            } else if (p.immunityCount && p.immunityCount > 0) {
-                                html += `<option value="${p.id}" disabled>${p.name} (選択不可残:${p.immunityCount})</option>`;
-                            } else {
-                                html += `<option value="${p.id}">${p.name}</option>`;
+
+                    if (card.id === 'wood_sword') {
+                        // 木の剣専用の対象選択肢
+                        const sorted = Object.values(latestGameState.players).sort((a, b) => b.score - a.score);
+                        const myRank = sorted.findIndex(p => p.id === myId) + 1;
+                        const myScore = myPlayer.score;
+
+                        // 自分より上の順位のプレイヤー（得点差5000点以内のみ抽出）
+                        sorted.forEach((p, index) => {
+                            const rank = index + 1;
+                            if (rank < myRank) {
+                                const diff = p.score - myScore;
+                                const isImmune = p.immunityCount && p.immunityCount > 0;
+                                const isOutOfRange = diff > 5000;
+
+                                if (isImmune) {
+                                    html += `<option value="${p.id}" disabled>${p.name} (${rank}位/選択不可残:${p.immunityCount})</option>`;
+                                } else if (!isOutOfRange) {
+                                    // 5000点差以内の場合のみ攻撃対象リストへ追加（5000点超は除外）
+                                    html += `<option value="${p.id}">${p.name}</option>`;
+                                }
+                            }
+                        });
+
+                        // 自分より下の順位のプレイヤーが存在する場合の「全員」選択肢
+                        if (myRank < sorted.length) {
+                            let lowerPlayers = sorted.slice(myRank);
+
+                            // 1巡目の場合、自分より後に行動するプレイヤーを全員攻撃の対象から除外
+                            if (latestGameState.round === 1) {
+                                lowerPlayers = lowerPlayers.filter(p => {
+                                    const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
+                                    return pOrderIdx <= myOrderIdx;
+                                });
+                            }
+
+                            if (lowerPlayers.length > 0) {
+                                const lowerNames = lowerPlayers.map(p => p.name).join(',');
+                                html += `<option value="ALL_LOWER">${lowerNames}</option>`;
                             }
                         }
-                    });
+                    } else {
+                        // 通常の攻撃対象選択
+                        Object.values(latestGameState.players).forEach(p => {
+                            if (p.id !== myId) {
+                                const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
+                                if (latestGameState.round === 1 && pOrderIdx > myOrderIdx) {
+                                } else if (p.immunityCount && p.immunityCount > 0) {
+                                    html += `<option value="${p.id}" disabled>${p.name} (選択不可残:${p.immunityCount})</option>`;
+                                } else {
+                                    html += `<option value="${p.id}">${p.name}</option>`;
+                                }
+                            }
+                        });
+                    }
+
                     html += `</select><br>`;
 
                     // 木の盾セットの場合は攻撃回数選択を追加
