@@ -407,19 +407,7 @@ function executeStandardAttack(attackerId, targetId, cardId) {
     const cardName = cardId === 'wood_sword' ? '木の剣' : '木の盾';
     let logPrefix = `P${attacker.number} が P${target.number} に「${cardName}」で攻撃！ `;
 
-    // 相手の防御カード確認
-    if (target.defenseCard) {
-        target.defenseCard.usesLeft -= 1;
-        let msg = logPrefix + `相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
-        if (target.defenseCard.usesLeft <= 0) {
-            target.defenseCard = null;
-            msg += '（相手の防御カード破棄）';
-        }
-        broadcastGameState(msg);
-        return;
-    }
-
-    // 命中判定
+    // 1. 先に攻撃の命中判定を行う
     let isHit = false;
     let rateText = '';
     if (cardId === 'wood_sword') {
@@ -431,13 +419,28 @@ function executeStandardAttack(attackerId, targetId, cardId) {
         rateText = `(成功率:50%) `;
     }
 
+    // 2. 攻撃が失敗（ミス）した場合：防御カードは消費されずに攻撃失敗
     if (!isHit) {
         broadcastGameState(logPrefix + rateText + `攻撃は外れた！（ミス）`);
-    } else {
-        applyScoreChange(target, -3000);
-        target.immunityCount = 2; // 選択不可状態
-        broadcastGameState(logPrefix + rateText + `命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました)`);
+        return;
     }
+
+    // 3. 攻撃が成功した場合：防御カードの有無を確認してガード判定
+    if (target.defenseCard) {
+        target.defenseCard.usesLeft -= 1;
+        let msg = logPrefix + rateText + `命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
+        if (target.defenseCard.usesLeft <= 0) {
+            target.defenseCard = null;
+            msg += '（相手の防御カード破棄）';
+        }
+        broadcastGameState(msg);
+        return;
+    }
+
+    // 4. 防御カードがない場合：そのままダメージ適用
+    applyScoreChange(target, -3000);
+    target.immunityCount = 2; // 選択不可状態
+    broadcastGameState(logPrefix + rateText + `命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました)`);
 }
 
 // 木の盾セットのまとめ攻撃処理
@@ -457,33 +460,36 @@ function executeShieldSetAttack(attackerId, targetId, cardObj, maxAttacks, onCom
         cardObj.usesLeft -= 1;
         let logPrefix = `P${attacker.number} が P${target.number} に「木の盾セット」で攻撃 (${attackIndex}/${maxAttacks}回目)！ `;
 
-        // 防御カードチェック
+        // 1. 先に成功率（50%）の判定を行う
+        const isHit = Math.random() < 0.5;
+
+        // 2. 失敗（ミス）した場合：防御カードは消費せず、次の攻撃へ
+        if (!isHit) {
+            broadcastGameState(logPrefix + `(成功率:50%) 攻撃は外れた！（ミス）`);
+            setTimeout(doNextAttack, 500);
+            return;
+        }
+
+        // 3. 成功した場合：防御カードの有無を確認してガード判定
         if (target.defenseCard) {
             target.defenseCard.usesLeft -= 1;
-            let msg = logPrefix + `相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
+            let msg = logPrefix + `(成功率:50%) 命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
             if (target.defenseCard.usesLeft <= 0) {
                 target.defenseCard = null;
                 msg += '（相手の防御カード破棄）';
             }
             broadcastGameState(msg);
-            // 防御成功時は中断せず、残りの攻撃回数を消費して次へ
+            // 防御成功時も攻撃回数を消費して次の攻撃へ
             setTimeout(doNextAttack, 500);
             return;
         }
 
-        // 成功率 1/2
-        const isHit = Math.random() < 0.5;
-        if (!isHit) {
-            broadcastGameState(logPrefix + `(成功率:50%) 攻撃は外れた！（ミス）`);
-            setTimeout(doNextAttack, 500);
-        } else {
-            applyScoreChange(target, -3000);
-            target.immunityCount = 2; // 選択不可状態を付与
-            broadcastGameState(logPrefix + `(成功率:50%) 命中ヒット！ 得点-3000点！ (P${target.number}が選択不可状態になったため攻撃中断)`);
-
-            // 命中したら即座に攻撃を中断
-            onComplete();
-        }
+        // 4. 防御カードがない場合：ダメージ適用して攻撃中断
+        applyScoreChange(target, -3000);
+        target.immunityCount = 2; // 選択不可状態を付与
+        broadcastGameState(logPrefix + `(成功率:50%) 命中ヒット！ 得点-3000点！ (P${target.number}が選択不可状態になったため攻撃中断)`);
+        
+        onComplete();
     }
 
     doNextAttack();
