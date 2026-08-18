@@ -648,15 +648,17 @@
         function updateTurnControls(data) {
             const roundInfo = document.getElementById('round-info');
             const endTurnBtnContainer = document.getElementById('center-end-turn-btn');
+            const centerStatus = document.getElementById('center-status'); // ★追加
             const bonusModal = document.getElementById('bonus-choice-modal');
             const discardModal = document.getElementById('discard-modal');
             
             const isMyTurn = (data.currentTurnPlayerId === myId);
             const myPlayer = data.players[myId];
 
-            // 初期化（panel関連の処理を削除）
+            // 初期化
             roundInfo.innerHTML = `第 ${data.round} 巡目 / 全10巡`;
             endTurnBtnContainer.innerHTML = '';
+            if (centerStatus) centerStatus.innerText = ''; // ★デフォルトでテキストを消去
             if (bonusModal) bonusModal.style.display = 'none';
             if (discardModal) discardModal.style.display = 'none';
 
@@ -668,7 +670,8 @@
                 if (bonusModal) bonusModal.style.display = 'block';
                 roundInfo.innerHTML += ` <span style="color:#f1c40f;">【ボーナス選択中】</span>`;
             } else if (data.turnPhase === 'MAIN') {
-                roundInfo.innerHTML += `<br><span style="color:#f1c40f; font-size: 0.85em;">★ あなたのターンです</span>`;
+                roundInfo.innerHTML += `<br><span style="color:#f1c40f; font-size: 0.85em;">★ あなたのターンです。</span>`;
+                if (centerStatus) centerStatus.innerText = '手札のカードをクリックして使用'; // ★自分のターンのメインフェーズのみ表示
                 
                 endTurnBtnContainer.innerHTML = `
                     <button class="btn" style="background:#2980b9; height:100%; white-space:nowrap; margin:0; padding:0 12px; font-weight:bold;" onclick="socket.emit('endTurn')">
@@ -704,11 +707,10 @@
         function openDropCardModal(source, instanceId) {
             if (!latestGameState) return;
 
-            // ★ 自分のターンのメインフェーズ以外ではポップアップを開かない（警告を表示）
+            // ★ 自分のターンのメインフェーズ以外では無反応（ポップアップを開かない）にする
             const currentTurnId = latestGameState.currentTurnPlayerId;
             if (myId !== currentTurnId || latestGameState.turnPhase !== 'MAIN') {
-                alert('自分のターンのメインフェーズでのみカードを使用・操作できます。');
-                return;
+                return; // alertを削除し、何もせずに処理を抜ける
             }
 
             const myPlayer = latestGameState.players[myId];
