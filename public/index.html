@@ -11,7 +11,6 @@
         .btn { background: #e67e22; border: none; color: white; padding: 10px 15px; border-radius: 4px; cursor: pointer; margin: 5px; }
         .btn:disabled { background: #7f8c8d; cursor: not-allowed; }
 
-        /* 右上設定ボタン */
         .settings-btn {
             position: absolute;
             top: 0;
@@ -21,7 +20,6 @@
             padding: 8px 12px;
         }
 
-        /* モーダル汎用（画面の絶対中央配置） */
         .modal {
             display: none;
             position: fixed;
@@ -31,14 +29,12 @@
             height: 100vh;
             background: rgba(0, 0, 0, 0.85);
             z-index: 1000;
-            /* 縦横中央に要素を寄せる Flexbox 設定 */
             align-items: center;
             justify-content: center;
             box-sizing: border-box;
             padding: 20px;
         }
 
-        /* JavaScript等でモーダルを表示する際のクラス */
         .modal[style*="display: block"] {
             display: flex !important;
         }
@@ -54,14 +50,6 @@
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
         }
 
-        /* 罠モーダル特有 */
-        #trap-modal-content {
-            border-color: #e74c3c;
-            text-align: center;
-        }
-        .trap-btn { font-size: 20px; padding: 15px 25px; margin: 10px; background: #3498db; }
-
-        /* スイッチリストUI */
         .switch-item {
             display: flex;
             justify-content: space-between;
@@ -72,15 +60,14 @@
             border-radius: 4px;
         }
 
-        /* 麻雀風卓レイアウト（手札の高さに合わせて自動伸縮するように修正） */
         .mj-table {
             display: grid;
             grid-template-columns: 220px 1fr 220px;
-            grid-template-rows: auto 1fr auto; /* 柔軟に高さが伸縮するよう調整 */
+            grid-template-rows: auto 1fr auto;
             grid-template-areas: 
                 "left   top    right"
                 "left   center right"
-                "bottom bottom bottom"; /* 領域の位置関係を指定 */
+                "bottom bottom bottom";
             gap: 10px;
             background: #1e3799;
             padding: 15px;
@@ -89,13 +76,11 @@
             min-height: 720px;
         }
 
-        /* 各座席の配置 */
         .seat-top    { grid-area: top; }
         .seat-left   { grid-area: left; }
         .seat-right  { grid-area: right; }
         .seat-bottom { grid-area: bottom; }
 
-        /* プレイヤーボックス共通スタイル */
         .player-box {
             background: rgba(26, 37, 47, 0.85);
             border: 2px solid #34495e;
@@ -107,13 +92,11 @@
             transition: border-color 0.35s ease;
         }
 
-        /* ターンプレイヤーの強調 */
         .player-box.active {
             border-color: #f1c40f;
             box-shadow: 0 0 12px #f1c40f;
         }
 
-        /* 卓の中央（情報・ログエリア＆ドロップゾーン） */
         .table-center {
             grid-area: center;
             background: rgba(15, 23, 42, 0.9);
@@ -123,23 +106,13 @@
             flex-direction: column;
             justify-content: space-between;
             border: 2px dashed #334155;
-            transition: all 0.2s ease;
         }
 
-        /* ドロップホバー状態 */
-        .table-center.drag-over {
-            background: rgba(41, 128, 185, 0.95) !important;
-            border-color: #f1c40f !important;
-            box-shadow: 0 0 20px #f1c40f;
-        }
-
-        /* 自分（手前）のスタイリング */
         .seat-bottom .player-box {
             background: rgba(15, 23, 42, 0.95);
             border-width: 3px;
         }
 
-        /* ミニカード（他プレイヤーの場・罠用） */
         .mini-card-icon {
             width: 22px;
             height: 32px;
@@ -148,34 +121,18 @@
             vertical-align: middle;
         }
 
-        /* ドラッグ可能（防御カード）のカーソルを変更 */
         .draggable-def-card {
-            cursor: pointer; /* ★ grab から pointer に変更 */
+            cursor: pointer;
             border: 1px dashed #f1c40f;
         }
 
-        /* スロット横並び表示 */
-        .trap-slots-container {
-            display: flex;
-            gap: 5px;
-            margin-top: 4px;
-        }
-        .trap-slot-item {
-            background: rgba(0,0,0,0.3);
-            padding: 3px 6px;
-            border-radius: 4px;
-            font-size: 0.8em;
-            border: 1px solid #475569;
-        }
-
-        /* 自分の手札コンテナ（はみ出しを許可し、ツールチップを見切れなくする） */
         .my-hand-container {
             display: flex;
             gap: 10px;
             margin-top: 8px;
-            padding: 15px 5px 5px 5px; /* 上部に余白を確保 */
-            overflow: visible;         /* auto から visible に変更して見切りを防止 */
-            flex-wrap: wrap;           /* 枚数が多い場合は折り返す */
+            padding: 15px 5px 5px 5px;
+            overflow: visible;
+            flex-wrap: wrap;
         }
 
         .card-img {
@@ -185,7 +142,7 @@
             background-color: #000;
             border-radius: 6px;
             display: block;
-            cursor: pointer; /* ★ grab から pointer に変更 */
+            cursor: pointer;
             border: 2px solid #475569;
             transition: transform 0.2s ease, border-color 0.2s ease;
         }
@@ -195,24 +152,21 @@
             border-color: #f1c40f;
         }
 
-        /* 手札カードホバー用のラッパー */
         .hand-card-wrapper {
             position: relative;
             display: inline-block;
-            z-index: 1; /* 通常時の重なり順 */
+            z-index: 1;
         }
 
-        /* ホバーされたカードを最前面にする */
         .hand-card-wrapper:hover {
             z-index: 10;
         }
 
-        /* ツールチップ（効果説明吹き出し） */
         .card-tooltip {
             visibility: hidden;
             opacity: 0;
             position: absolute;
-            bottom: 115%; /* 表示位置を少し上へずらす */
+            bottom: 115%;
             left: 50%;
             transform: translateX(-50%);
             width: 200px;
@@ -225,7 +179,7 @@
             line-height: 1.4;
             text-align: left;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.8);
-            z-index: 9999; /* 他の要素より確実に前に表示 */
+            z-index: 9999;
             transition: opacity 0.2s ease, visibility 0.2s ease;
             pointer-events: none;
         }
@@ -260,17 +214,12 @@
         <!-- ゲームメイン画面 -->
         <div id="game-main" style="display: none;">
             <div class="mj-table">
-                <!-- 対面（奥） -->
                 <div class="seat-top" id="seat-top"></div>
-
-                <!-- 下家（右） -->
                 <div class="seat-right" id="seat-right"></div>
 
-                <!-- 卓の中央（ログエリア） -->
                 <div class="table-center">
                     <div id="round-info" style="font-size: 1.1em; font-weight: bold; text-align: center; color: #f1c40f;"></div>
                     
-                    <!-- ログとターン終了ボタンの横並びエリア -->
                     <div style="display: flex; gap: 8px; align-items: stretch; margin: 5px 0;">
                         <div id="log-box" style="flex: 1; height: 110px; overflow-y: auto; background: #000; padding: 8px; font-family: monospace; font-size: 0.8em; border-radius: 4px;"></div>
                         <div id="center-end-turn-btn" style="display: flex; align-items: center;"></div>
@@ -281,78 +230,62 @@
                     </div>
                 </div>
 
-                <!-- 上家（左） -->
                 <div class="seat-left" id="seat-left"></div>
-
-                <!-- 自分（手前） -->
                 <div class="seat-bottom" id="seat-bottom"></div>
             </div>
         </div>
 
         <!-- 手札オーバー破棄選択モーダル -->
-    <div id="discard-modal" class="modal">
-        <div class="modal-content" style="text-align:center; max-width:600px;">
-            <h3 style="margin-top:0; color:#e74c3c;">★ 手札オーバー！</h3>
-            <p style="margin: 10px 0; font-size: 0.95em; color:#cbd5e1;">
-                1枚以下になるように捨てるカードを選択してください。
-            </p>
-            <div id="discard-cards-container" style="display:flex; gap:15px; justify-content:center; flex-wrap:wrap; margin-top:15px;"></div>
+        <div id="discard-modal" class="modal">
+            <div class="modal-content" style="text-align:center; max-width:600px;">
+                <h3 style="margin-top:0; color:#e74c3c;">★ 手札オーバー！</h3>
+                <p style="margin: 10px 0; font-size: 0.95em; color:#cbd5e1;">
+                    1枚以下になるように捨てるカードを選択してください。
+                </p>
+                <div id="discard-cards-container" style="display:flex; gap:15px; justify-content:center; flex-wrap:wrap; margin-top:15px;"></div>
+            </div>
         </div>
-    </div>
         
         <!-- ターン開始ボーナス選択モーダル -->
-    <div id="bonus-choice-modal" class="modal">
-        <div class="modal-content" style="text-align:center; max-width:400px;">
-            <h3 style="margin-top:0; color:#f1c40f;">★ あなたのターンです</h3>
-            <p style="margin: 15px 0; font-size: 1.05em; line-height: 1.5;">
-                ターン開始ボーナス (+3000点) を獲得しますか？
-            </p>
-            <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
-                <button class="btn" style="background:#27ae60; padding:12px; font-weight:bold;" onclick="chooseBonusChoice(true)">
-                    ボーナスを受け取る (+3000点 & カード獲得)
-                </button>
-                <button class="btn" style="background:#7f8c8d; padding:10px;" onclick="chooseBonusChoice(false)">
-                    受け取らない (カードのみ獲得)
-                </button>
+        <div id="bonus-choice-modal" class="modal">
+            <div class="modal-content" style="text-align:center; max-width:400px;">
+                <h3 style="margin-top:0; color:#f1c40f;">★ あなたのターンです</h3>
+                <p style="margin: 15px 0; font-size: 1.05em; line-height: 1.5;">
+                    ターン開始ボーナス (+3000点) を獲得しますか？
+                </p>
+                <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
+                    <button class="btn" style="background:#27ae60; padding:12px; font-weight:bold;" onclick="chooseBonusChoice(true)">
+                        ボーナスを受け取る (+3000点 & カード獲得)
+                    </button>
+                    <button class="btn" style="background:#7f8c8d; padding:10px;" onclick="chooseBonusChoice(false)">
+                        受け取らない (カードのみ獲得)
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
 
-    <!-- カード操作モーダル（ドロップ時に表示） -->
-    <div id="drop-action-modal" class="modal">
-        <div class="modal-content" style="text-align:center; max-width:420px;">
-            <h3 id="drop-modal-title" style="margin-top:0; color:#f1c40f;">カード操作</h3>
-            <div id="drop-modal-card-preview" style="margin: 10px 0;"></div>
-            <div id="drop-modal-actions" style="margin-top: 15px;"></div>
-            <div style="margin-top: 15px; border-top: 1px solid #475569; padding-top: 10px;">
-                <button class="btn" style="background:#7f8c8d;" onclick="closeDropActionModal()">キャンセル</button>
+        <!-- カード操作モーダル -->
+        <div id="drop-action-modal" class="modal">
+            <div class="modal-content" style="text-align:center; max-width:420px;">
+                <h3 id="drop-modal-title" style="margin-top:0; color:#f1c40f;">カード操作</h3>
+                <div id="drop-modal-card-preview" style="margin: 10px 0;"></div>
+                <div id="drop-modal-actions" style="margin-top: 15px;"></div>
+                <div style="margin-top: 15px; border-top: 1px solid #475569; padding-top: 10px;">
+                    <button class="btn" style="background:#7f8c8d;" onclick="closeDropActionModal()">キャンセル</button>
+                </div>
             </div>
         </div>
-    </div>
 
-    <!-- カードスイッチ設定モーダル -->
-    <div id="settings-modal" class="modal">
-        <div class="modal-content">
-            <h3 style="margin-top:0;">⚙ カード排出スイッチ (デバッグ)</h3>
-            <p style="font-size: 0.85em; color: #bdc3c7;">OFFにするとターン開始時のカード獲得で引けなくなります。</p>
-            <div id="card-switches"></div>
-            <div style="text-align: right; margin-top: 15px;">
-                <button class="btn" style="background:#7f8c8d;" onclick="closeSettingsModal()">閉じる</button>
+        <!-- カードスイッチ設定モーダル -->
+        <div id="settings-modal" class="modal">
+            <div class="modal-content">
+                <h3 style="margin-top:0;">⚙ カード排出スイッチ (デバッグ)</h3>
+                <p style="font-size: 0.85em; color: #bdc3c7;">OFFにするとターン開始時のカード獲得で引けなくなります。</p>
+                <div id="card-switches"></div>
+                <div style="text-align: right; margin-top: 15px;">
+                    <button class="btn" style="background:#7f8c8d;" onclick="closeSettingsModal()">閉じる</button>
+                </div>
             </div>
-        </div>
-    </div>
-
-    <!-- 罠対決モーダルUI -->
-    <div id="trap-modal" class="modal">
-        <div id="trap-modal-content" class="modal-content">
-            <h2 style="color: #e74c3c;">【 罠 発 動 ! 】</h2>
-            <p id="trap-desc">攻撃が発生しました！選択してください。</p>
-            <div id="trap-buttons">
-                <button class="btn trap-btn" onclick="sendTrapChoice('LEFT')">左</button>
-                <button class="btn trap-btn" onclick="sendTrapChoice('CENTER')">中</button>
-                <button class="btn trap-btn" onclick="sendTrapChoice('RIGHT')">右</button>
-            </div>
-            <p id="trap-status-text" style="color: #f1c40f; margin-top: 15px;"></p>
         </div>
     </div>
 
@@ -456,36 +389,6 @@
             });
         }
 
-        socket.on('trapBattleStart', (data) => {
-            const modal = document.getElementById('trap-modal');
-            const desc = document.getElementById('trap-desc');
-            const statusText = document.getElementById('trap-status-text');
-            const btns = document.getElementById('trap-buttons');
-
-            modal.style.display = 'block';
-            statusText.innerText = '';
-
-            if (myId === data.attackerId || myId === data.targetId) {
-                desc.innerHTML = `<b>${data.attackerName}</b> が <b>${data.targetName}</b> のスロット${data.slotNum}に攻撃！<br>罠「${data.trapName}」が作動しました。<br>10秒以内に【左・中・右】を選択してください！`;
-                btns.style.display = 'block';
-                btns.querySelectorAll('button').forEach(b => b.disabled = false);
-            } else {
-                desc.innerHTML = `<b>${data.attackerName}</b> と <b>${data.targetName}</b> が罠対決中です...`;
-                btns.style.display = 'none';
-            }
-        });
-
-        function sendTrapChoice(choice) {
-            socket.emit('selectTrapChoice', choice);
-            const btns = document.getElementById('trap-buttons');
-            btns.querySelectorAll('button').forEach(b => b.disabled = true);
-            document.getElementById('trap-status-text').innerText = '選択を送信しました。相手の選択を待っています...';
-        }
-
-        socket.on('trapBattleEnd', (data) => {
-            document.getElementById('trap-modal').style.display = 'none';
-        });
-
         socket.on('errorMessage', (msg) => { alert(msg); });
 
         socket.on('syncGameState', (data) => {
@@ -509,7 +412,6 @@
             updateTurnControls(data);
         });
 
-        // --- UIレンダリング ---
         function updatePlayersUI(players, currentTurnPlayerId) {
             const sorted = Object.values(players).sort((a, b) => b.score - a.score);
             const playerList = Object.values(players).sort((a, b) => a.number - b.number);
@@ -544,11 +446,9 @@
                 const box = document.createElement('div');
                 box.className = `player-box ${isTurn ? 'active' : ''}`;
 
-                // 防御カード情報の表示（自分の防御カードはクリック可能）
                 let defInfo = '<span style="color:#7f8c8d;">なし</span>';
                 if (p.defenseCard) {
                     const card = p.defenseCard.card;
-                    // ★ draggable 属性を削除し、onclick で openDropCardModal を呼ぶよう変更
                     const clickAttr = isMe ? `onclick="openDropCardModal('DEFENSE', null)"` : '';
                     defInfo = `
                         <span style="color:#2ecc71;">
@@ -558,44 +458,15 @@
                     `;
                 }
 
-                // 罠スロット情報の表示
-                let trapHtml = '<div class="trap-slots-container">';
-                [1, 2, 3].forEach(slotNum => {
-                    const trapObj = p.trapSlots ? p.trapSlots[slotNum] : null;
-                    if (trapObj) {
-                        const roundStr = trapObj.placedRound !== undefined ? `${trapObj.placedRound}巡` : '';
-                        if (isMe || trapObj.revealed) {
-                            trapHtml += `
-                                <div class="trap-slot-item" style="border-color:#e74c3c;">
-                                    ${trapObj.card.image ? `<img src="${trapObj.card.image}" class="mini-card-icon">` : ''}
-                                    <span style="color:#e74c3c;">S${slotNum}:${trapObj.card.name}(${trapObj.usesLeft}回)</span>
-                                </div>`;
-                        } else {
-                            trapHtml += `
-                                <div class="trap-slot-item" style="border-color:#e67e22;">
-                                    <span style="color:#e67e22;">S${slotNum}: 罠(${roundStr})</span>
-                                </div>`;
-                        }
-                    } else {
-                        trapHtml += `
-                            <div class="trap-slot-item">
-                                <span style="color:#64748b;">S${slotNum}: 空</span>
-                            </div>`;
-                    }
-                });
-                trapHtml += '</div>';
-
                 const posNames = ['【自分】', '【下家】', '【対面】', '【上家】'];
                 const posName = posNames[relativePos];
 
-                // 自分の手札埋め込み処理
                 let handHtml = '';
                 if (isMe) {
                     handHtml += `<div style="margin-top:6px;"><b>手札 (クリックして使用):</b>`;
                     if (p.hand && p.hand.length > 0) {
                         handHtml += `<div class="my-hand-container">`;
                         p.hand.forEach(card => {
-                            // ★ draggable と ondragstart を削除し、onclick="openDropCardModal('HAND', '${card.instanceId}')" を追加
                             handHtml += `
                                 <div class="hand-card-wrapper">
                                     <img src="${card.image}" class="card-img" alt="${card.name}" onclick="openDropCardModal('HAND', '${card.instanceId}')">
@@ -613,26 +484,26 @@
                     handHtml += `</div>`;
                 }
 
-                // ★持ち点表示用HTMLの動的生成を追加
                 let scoreDisplayHtml = '';
                 if (p.scoreChange && p.scoreChange !== 0) {
-                    const color = p.scoreChange > 0 ? '#2ecc71' : '#e74c3c'; // プラス:緑 / マイナス:赤
+                    const color = p.scoreChange > 0 ? '#2ecc71' : '#e74c3c';
                     const sign = p.scoreChange > 0 ? '+' : '';
                     scoreDisplayHtml = `持ち点: ${p.prevScore.toLocaleString()}点<span style="color: ${color}; font-weight: bold;">${sign}${p.scoreChange.toLocaleString()}点</span>→${p.score.toLocaleString()}点`;
                 } else {
                     scoreDisplayHtml = `持ち点: ${p.score.toLocaleString()}点`;
                 }
 
+                let statusBadge = p.immunityCount > 0 ? `<span style="color:#e74c3c; font-weight:bold; margin-left:5px;">[選択不可:${p.immunityCount}]</span>` : '';
+
                 box.innerHTML = `
                     <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <strong>${posName} P${p.number} ${isMe ? '(あなた)' : ''} ${isTurn ? '★' : ''}</strong>
+                        <strong>${posName} P${p.number} ${isMe ? '(あなた)' : ''} ${isTurn ? '★' : ''}${statusBadge}</strong>
                         <span style="color:#f1c40f; font-weight:bold;"> ${rank}位</span>
                     </div>
                     <div style="font-size: 1.1em; font-weight: bold; margin: 3px 0; color: #38bdf8;">
-                        ${scoreDisplayHtml} <!-- ★ここを修正（直接 p.score を出していたのを変数に変更） -->
+                        ${scoreDisplayHtml}
                     </div>
                     <div>手札: <b>${p.hand ? p.hand.length : 0}</b> 枚 | 防御: ${defInfo}</div>
-                    <div style="margin-top:3px;"><b>罠:</b> ${trapHtml}</div>
                     ${handHtml}
                 `;
 
@@ -648,30 +519,27 @@
         function updateTurnControls(data) {
             const roundInfo = document.getElementById('round-info');
             const endTurnBtnContainer = document.getElementById('center-end-turn-btn');
-            const centerStatus = document.getElementById('center-status'); // ★追加
+            const centerStatus = document.getElementById('center-status');
             const bonusModal = document.getElementById('bonus-choice-modal');
             const discardModal = document.getElementById('discard-modal');
             
             const isMyTurn = (data.currentTurnPlayerId === myId);
             const myPlayer = data.players[myId];
 
-            // 初期化
             roundInfo.innerHTML = `第 ${data.round} 巡目 / 全10巡`;
             endTurnBtnContainer.innerHTML = '';
-            if (centerStatus) centerStatus.innerText = ''; // ★デフォルトでテキストを消去
+            if (centerStatus) centerStatus.innerText = '';
             if (bonusModal) bonusModal.style.display = 'none';
             if (discardModal) discardModal.style.display = 'none';
 
-            if (!isMyTurn) {
-                return;
-            }
+            if (!isMyTurn) return;
 
             if (data.turnPhase === 'BONUS_CHOICE') {
                 if (bonusModal) bonusModal.style.display = 'block';
                 roundInfo.innerHTML += ` <span style="color:#f1c40f;">【ボーナス選択中】</span>`;
             } else if (data.turnPhase === 'MAIN') {
                 roundInfo.innerHTML += `<br><span style="color:#f1c40f; font-size: 0.85em;">★ あなたのターンです。</span>`;
-                if (centerStatus) centerStatus.innerText = '手札のカードをクリックして使用'; // ★自分のターンのメインフェーズのみ表示
+                if (centerStatus) centerStatus.innerText = '手札のカードをクリックして使用';
                 
                 endTurnBtnContainer.innerHTML = `
                     <button class="btn" style="background:#2980b9; height:100%; white-space:nowrap; margin:0; padding:0 12px; font-weight:bold;" onclick="socket.emit('endTurn')">
@@ -681,7 +549,6 @@
             } else if (data.turnPhase === 'DISCARD') {
                 roundInfo.innerHTML += ` <span style="color:#e74c3c;">【手札オーバー】</span>`;
                 
-                // ディスカードモーダルの要素を取得して中身を生成
                 const discardContainer = document.getElementById('discard-cards-container');
                 if (discardContainer && myPlayer && myPlayer.hand) {
                     discardContainer.innerHTML = '';
@@ -699,7 +566,6 @@
             }
         }
 
-        // --- ドロップ時のポップアップモーダル制御 ---
         function closeDropActionModal() {
             document.getElementById('drop-action-modal').style.display = 'none';
         }
@@ -707,11 +573,8 @@
         function openDropCardModal(source, instanceId) {
             if (!latestGameState) return;
 
-            // ★ 自分のターンのメインフェーズ以外では無反応（ポップアップを開かない）にする
             const currentTurnId = latestGameState.currentTurnPlayerId;
-            if (myId !== currentTurnId || latestGameState.turnPhase !== 'MAIN') {
-                return; // alertを削除し、何もせずに処理を抜ける
-            }
+            if (myId !== currentTurnId || latestGameState.turnPhase !== 'MAIN') return;
 
             const myPlayer = latestGameState.players[myId];
             if (!myPlayer) return;
@@ -725,10 +588,16 @@
             actions.innerHTML = '';
 
             let card = null;
+            let usesLeft = 1;
+
             if (source === 'HAND') {
                 card = myPlayer.hand.find(c => c.instanceId === instanceId);
+                usesLeft = card ? (card.id === 'wood_shield_set' ? (card.usesLeft || 3) : 1) : 1;
             } else if (source === 'DEFENSE') {
-                if (myPlayer.defenseCard) card = myPlayer.defenseCard.card;
+                if (myPlayer.defenseCard) {
+                    card = myPlayer.defenseCard.card;
+                    usesLeft = myPlayer.defenseCard.usesLeft;
+                }
             }
 
             if (!card) return;
@@ -740,71 +609,18 @@
                 <p style="font-size:0.85em; color:#cbd5e1; margin:8px 0 0 0;">${card.desc}</p>
             `;
 
-            const emptySlots = [1, 2, 3].filter(s => !myPlayer.trapSlots || !myPlayer.trapSlots[s]);
             const hasDefense = !!myPlayer.defenseCard;
             let html = '';
 
             if (source === 'HAND') {
                 if (card.id === 'gold_bag') {
                     html += `<button class="btn" style="background:#27ae60; font-size:1.05em; width:100%;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">使用する (+3000点)</button>`;
-                } else if (card.category === 'DEFENSE_TRAP') {
-                    // 1. 攻撃機能
-                    if (card.id === 'wood_sword') {
-                        const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
-                        html += `<div style="background:#1a252f; padding:10px; border-radius:6px; margin-bottom:10px; text-align:left;">`;
-                        html += `<b style="color:#e74c3c;">⚔ 攻撃する:</b><br>`;
-                        html += `対象: <select id="drop-target-${card.instanceId}" onchange="updateDropAttackSlotOptions('${card.instanceId}')">`;
-                        Object.values(latestGameState.players).forEach(p => {
-                            if (p.id !== myId) {
-                                const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
-                                if (latestGameState.round === 1 && pOrderIdx > myOrderIdx) {
-                                } else if (p.immunityCount && p.immunityCount > 0) {
-                                    html += `<option value="${p.id}" disabled>${p.name} (選択不可残:${p.immunityCount})</option>`;
-                                } else {
-                                    html += `<option value="${p.id}">${p.name}</option>`;
-                                }
-                            }
-                        });
-                        html += `</select><br>`;
-                        html += `<span id="drop-slot-container-${card.instanceId}">スロット: <select id="drop-slot-${card.instanceId}"></select></span><br>`;
-                        html += `<button class="btn" style="background:#e74c3c; margin-top:5px; width:100%;" onclick="executeDropPlayCard('${card.instanceId}', 'ATTACK')">攻撃実行</button>`;
-                        html += `</div>`;
-                    }
-
-                    // 2. 防御にセット
-                    html += `<div style="margin-bottom:8px;">`;
-                    if (hasDefense) {
-                        html += `<button class="btn" disabled style="background:#7f8c8d; width:100%;">防御にセット不可 (すでにセット中)</button>`;
-                    } else {
-                        html += `<button class="btn" style="background:#2980b9; width:100%;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}', actionTarget: 'DEFENSE' }); closeDropActionModal();">防御にセット</button>`;
-                    }
-                    html += `</div>`;
-
-                    // 3. 罠にセット
-                    html += `<div>`;
-                    if (hasDefense) {
-                        html += `<button class="btn" disabled style="background:#7f8c8d; width:100%;">罠にセット不可 (防御セット中)</button>`;
-                    } else if (emptySlots.length > 0) {
-                        html += `<div style="display:flex; gap:5px; justify-content:center; align-items:center;">`;
-                        html += `スロット: <select id="drop-set-slot-${card.instanceId}">`;
-                        emptySlots.forEach(s => {
-                            html += `<option value="${s}">スロット${s}</option>`;
-                        });
-                        html += `</select>`;
-                        html += `<button class="btn" style="background:#8e44ad; flex:1;" onclick="executeDropPlayCard('${card.instanceId}', 'TRAP')">罠にセット</button>`;
-                        html += `</div>`;
-                    } else {
-                        html += `<button class="btn" disabled style="background:#7f8c8d; width:100%;">罠スロット満杯</button>`;
-                    }
-                    html += `</div>`;
-                }
-            } else if (source === 'DEFENSE') {
-                // 防御カードの操作オプション
-                if (card.id === 'wood_sword') {
+                } else {
+                    // 1. 攻撃機能（全攻撃/防御カードが対応）
                     const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
                     html += `<div style="background:#1a252f; padding:10px; border-radius:6px; margin-bottom:10px; text-align:left;">`;
-                    html += `<b style="color:#e74c3c;">⚔ 防御を外して攻撃:</b><br>`;
-                    html += `対象: <select id="drop-def-attack-target" onchange="updateDropDefAttackSlotOptions()">`;
+                    html += `<b style="color:#e74c3c;">⚔ 攻撃する:</b><br>`;
+                    html += `対象: <select id="drop-target-${card.instanceId}">`;
                     Object.values(latestGameState.players).forEach(p => {
                         if (p.id !== myId) {
                             const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
@@ -817,139 +633,89 @@
                         }
                     });
                     html += `</select><br>`;
-                    html += `<span id="drop-def-attack-slot-container">スロット: <select id="drop-def-attack-slot"></select></span><br>`;
-                    html += `<button class="btn" style="background:#e74c3c; margin-top:5px; width:100%;" onclick="executeDropDefenseAttack()">攻撃する</button>`;
+
+                    // 木の盾セットの場合は攻撃回数選択を追加
+                    if (card.id === 'wood_shield_set') {
+                        html += `回数: <select id="drop-attack-count-${card.instanceId}">`;
+                        for (let i = 1; i <= usesLeft; i++) {
+                            html += `<option value="${i}">${i}回</option>`;
+                        }
+                        html += `</select><br>`;
+                    }
+
+                    html += `<button class="btn" style="background:#e74c3c; margin-top:5px; width:100%;" onclick="executeDropPlayCard('${card.instanceId}', 'ATTACK')">攻撃実行</button>`;
                     html += `</div>`;
+
+                    // 2. 防御にセット
+                    html += `<div style="margin-bottom:8px;">`;
+                    if (hasDefense) {
+                        html += `<button class="btn" disabled style="background:#7f8c8d; width:100%;">防御にセット不可 (すでにセット中)</button>`;
+                    } else {
+                        html += `<button class="btn" style="background:#2980b9; width:100%;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}', actionTarget: 'DEFENSE' }); closeDropActionModal();">防御にセット</button>`;
+                    }
+                    html += `</div>`;
+                }
+            } else if (source === 'DEFENSE') {
+                // 防御カードからの攻撃
+                const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
+                html += `<div style="background:#1a252f; padding:10px; border-radius:6px; margin-bottom:10px; text-align:left;">`;
+                html += `<b style="color:#e74c3c;">⚔ 防御を外して攻撃:</b><br>`;
+                html += `対象: <select id="drop-def-attack-target">`;
+                Object.values(latestGameState.players).forEach(p => {
+                    if (p.id !== myId) {
+                        const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
+                        if (latestGameState.round === 1 && pOrderIdx > myOrderIdx) {
+                        } else if (p.immunityCount && p.immunityCount > 0) {
+                            html += `<option value="${p.id}" disabled>${p.name} (選択不可残:${p.immunityCount})</option>`;
+                        } else {
+                            html += `<option value="${p.id}">${p.name}</option>`;
+                        }
+                    }
+                });
+                html += `</select><br>`;
+
+                if (card.id === 'wood_shield_set') {
+                    html += `回数: <select id="drop-def-attack-count">`;
+                    for (let i = 1; i <= usesLeft; i++) {
+                        html += `<option value="${i}">${i}回</option>`;
+                    }
+                    html += `</select><br>`;
                 }
 
-                if (emptySlots.length > 0) {
-                    html += `<div style="margin-bottom:8px; display:flex; gap:5px; justify-content:center; align-items:center;">`;
-                    html += `スロット: <select id="drop-move-trap-slot">`;
-                    emptySlots.forEach(s => {
-                        html += `<option value="${s}">スロット${s}</option>`;
-                    });
-                    html += `</select>`;
-                    html += `<button class="btn" style="background:#8e44ad; flex:1;" onclick="executeDropMoveDefenseToTrap()">罠に移し替える</button>`;
-                    html += `</div>`;
-                }
+                html += `<button class="btn" style="background:#e74c3c; margin-top:5px; width:100%;" onclick="executeDropDefenseAttack()">攻撃する</button>`;
+                html += `</div>`;
 
                 html += `<button class="btn" style="background:#c0392b; width:100%;" onclick="socket.emit('discardDefense'); closeDropActionModal();">防御カードを破棄</button>`;
             }
 
             actions.innerHTML = html;
             modal.style.display = 'block';
-
-            if (source === 'HAND' && card.id === 'wood_sword') {
-                updateDropAttackSlotOptions(card.instanceId);
-            }
-            if (source === 'DEFENSE' && card.id === 'wood_sword') {
-                updateDropDefAttackSlotOptions();
-            }
-        }
-
-        // --- モーダル内スロット選択UI補助 ---
-        function updateDropAttackSlotOptions(instanceId) {
-            const targetSelect = document.getElementById(`drop-target-${instanceId}`);
-            const slotSelect = document.getElementById(`drop-slot-${instanceId}`);
-            const slotContainer = document.getElementById(`drop-slot-container-${instanceId}`);
-            if (!targetSelect || !slotSelect || !latestGameState) return;
-
-            const targetId = targetSelect.value;
-            if (!targetId) {
-                if (slotContainer) slotContainer.style.display = 'none';
-                return;
-            }
-
-            const targetPlayer = latestGameState.players[targetId];
-            if (!targetPlayer) return;
-
-            const activeSlots = [1, 2, 3].filter(s => targetPlayer.trapSlots && targetPlayer.trapSlots[s]);
-            slotSelect.innerHTML = '';
-
-            if (activeSlots.length > 0) {
-                if (slotContainer) slotContainer.style.display = 'inline';
-                activeSlots.forEach(s => {
-                    const opt = document.createElement('option');
-                    opt.value = s;
-                    opt.innerText = `スロット${s}`;
-                    slotSelect.appendChild(opt);
-                });
-            } else {
-                if (slotContainer) slotContainer.style.display = 'none';
-                const opt = document.createElement('option');
-                opt.value = 1;
-                slotSelect.appendChild(opt);
-            }
-        }
-
-        function updateDropDefAttackSlotOptions() {
-            const targetSelect = document.getElementById('drop-def-attack-target');
-            const slotSelect = document.getElementById('drop-def-attack-slot');
-            const slotContainer = document.getElementById('drop-def-attack-slot-container');
-            if (!targetSelect || !slotSelect || !latestGameState) return;
-
-            const targetId = targetSelect.value;
-            if (!targetId) {
-                if (slotContainer) slotContainer.style.display = 'none';
-                return;
-            }
-
-            const targetPlayer = latestGameState.players[targetId];
-            if (!targetPlayer) return;
-
-            const activeSlots = [1, 2, 3].filter(s => targetPlayer.trapSlots && targetPlayer.trapSlots[s]);
-            slotSelect.innerHTML = '';
-
-            if (activeSlots.length > 0) {
-                if (slotContainer) slotContainer.style.display = 'inline';
-                activeSlots.forEach(s => {
-                    const opt = document.createElement('option');
-                    opt.value = s;
-                    opt.innerText = `スロット${s}`;
-                    slotSelect.appendChild(opt);
-                });
-            } else {
-                if (slotContainer) slotContainer.style.display = 'none';
-                const opt = document.createElement('option');
-                opt.value = 1;
-                slotSelect.appendChild(opt);
-            }
         }
 
         function executeDropPlayCard(instanceId, actionTarget) {
             let targetPlayerId = null;
-            let trapSlotNum = null;
+            let attackCount = 1;
 
             if (actionTarget === 'ATTACK') {
                 const targetSelect = document.getElementById(`drop-target-${instanceId}`);
                 if (targetSelect) targetPlayerId = targetSelect.value;
-                const slotSelect = document.getElementById(`drop-slot-${instanceId}`);
-                if (slotSelect) trapSlotNum = slotSelect.value;
-            } else if (actionTarget === 'TRAP') {
-                const setSlotSelect = document.getElementById(`drop-set-slot-${instanceId}`);
-                if (setSlotSelect) trapSlotNum = setSlotSelect.value;
+                const countSelect = document.getElementById(`drop-attack-count-${instanceId}`);
+                if (countSelect) attackCount = countSelect.value;
             }
 
-            socket.emit('playCard', { instanceId, actionTarget, targetPlayerId, trapSlotNum });
+            socket.emit('playCard', { instanceId, actionTarget, targetPlayerId, attackCount });
             closeDropActionModal();
         }
 
         function executeDropDefenseAttack() {
             const targetSelect = document.getElementById('drop-def-attack-target');
-            const slotSelect = document.getElementById('drop-def-attack-slot');
             if (!targetSelect) return;
 
             const targetPlayerId = targetSelect.value;
-            const trapSlotNum = slotSelect ? slotSelect.value : 1;
+            const countSelect = document.getElementById('drop-def-attack-count');
+            const attackCount = countSelect ? countSelect.value : 1;
 
-            socket.emit('playDefenseAsAttack', { targetPlayerId, trapSlotNum });
-            closeDropActionModal();
-        }
-
-        function executeDropMoveDefenseToTrap() {
-            const slotSelect = document.getElementById('drop-move-trap-slot');
-            if (!slotSelect) return;
-            socket.emit('moveDefenseToTrap', { trapSlotNum: slotSelect.value });
+            socket.emit('playDefenseAsAttack', { targetPlayerId, attackCount });
             closeDropActionModal();
         }
     </script>
