@@ -187,6 +187,13 @@ io.on('connection', (socket) => {
 
         const card = player.hand[cardIndex];
 
+        // ★ 追加: 防御カードセット時の手札使用制限チェック
+        // card.allowWithDefense が true のカードは例外として使用可能
+        if (player.defenseCard && !card.allowWithDefense) {
+            socket.emit('errorMessage', '防御カードがセットされています。');
+            return;
+        }
+
         // 1. 金袋の使用
         if (card.id === 'gold_bag') {
             applyScoreChange(player, 3000);

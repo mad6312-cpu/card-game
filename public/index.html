@@ -1,15 +1,45 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>カード対戦ゲーム</title>
     <style>
-        body { font-family: sans-serif; background: #2c3e50; color: #ecf0f1; padding: 20px; }
-        .container { max-width: 900px; margin: 0 auto; position: relative; }
-        .card { background: #34495e; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
-        .btn { background: #e67e22; border: none; color: white; padding: 10px 15px; border-radius: 4px; cursor: pointer; margin: 5px; }
-        .btn:disabled { background: #7f8c8d; cursor: not-allowed; }
+        body {
+            font-family: sans-serif;
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .card {
+            background: #34495e;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .btn {
+            background: #e67e22;
+            border: none;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+
+        .btn:disabled {
+            background: #7f8c8d;
+            cursor: not-allowed;
+        }
 
         .settings-btn {
             position: absolute;
@@ -23,9 +53,9 @@
         .modal {
             display: none;
             position: fixed;
-            top: 0; 
-            left: 0; 
-            width: 100vw; 
+            top: 0;
+            left: 0;
+            width: 100vw;
             height: 100vh;
             background: rgba(0, 0, 0, 0.85);
             z-index: 1000;
@@ -64,7 +94,7 @@
             display: grid;
             grid-template-columns: 220px 1fr 220px;
             grid-template-rows: auto 1fr auto;
-            grid-template-areas: 
+            grid-template-areas:
                 "left   top    right"
                 "left   center right"
                 "bottom bottom bottom";
@@ -72,14 +102,25 @@
             background: #1e3799;
             padding: 15px;
             border-radius: 12px;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.6);
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.6);
             min-height: 720px;
         }
 
-        .seat-top    { grid-area: top; }
-        .seat-left   { grid-area: left; }
-        .seat-right  { grid-area: right; }
-        .seat-bottom { grid-area: bottom; }
+        .seat-top {
+            grid-area: top;
+        }
+
+        .seat-left {
+            grid-area: left;
+        }
+
+        .seat-right {
+            grid-area: right;
+        }
+
+        .seat-bottom {
+            grid-area: bottom;
+        }
 
         .player-box {
             background: rgba(26, 37, 47, 0.85);
@@ -88,7 +129,7 @@
             padding: 10px;
             color: #ecf0f1;
             font-size: 0.85em;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
             transition: border-color 0.35s ease;
         }
 
@@ -201,6 +242,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <button class="btn settings-btn" onclick="openSettingsModal()">⚙ デバッグ設定</button>
@@ -218,14 +260,18 @@
                 <div class="seat-right" id="seat-right"></div>
 
                 <div class="table-center">
-                    <div id="round-info" style="font-size: 1.1em; font-weight: bold; text-align: center; color: #f1c40f;"></div>
-                    
+                    <div id="round-info"
+                        style="font-size: 1.1em; font-weight: bold; text-align: center; color: #f1c40f;"></div>
+
                     <div style="display: flex; gap: 8px; align-items: stretch; margin: 5px 0;">
-                        <div id="log-box" style="flex: 1; height: 110px; overflow-y: auto; background: #000; padding: 8px; font-family: monospace; font-size: 0.8em; border-radius: 4px;"></div>
+                        <div id="log-box"
+                            style="flex: 1; height: 110px; overflow-y: auto; background: #000; padding: 8px; font-family: monospace; font-size: 0.8em; border-radius: 4px;">
+                        </div>
                         <div id="center-end-turn-btn" style="display: flex; align-items: center;"></div>
                     </div>
 
-                    <div id="center-status" style="font-size: 0.85em; text-align: center; color: #38bdf8; font-weight: bold;">
+                    <div id="center-status"
+                        style="font-size: 0.85em; text-align: center; color: #38bdf8; font-weight: bold;">
                         手札のカードをクリックして使用
                     </div>
                 </div>
@@ -242,10 +288,11 @@
                 <p style="margin: 10px 0; font-size: 0.95em; color:#cbd5e1;">
                     1枚以下になるように捨てるカードを選択してください。
                 </p>
-                <div id="discard-cards-container" style="display:flex; gap:15px; justify-content:center; flex-wrap:wrap; margin-top:15px;"></div>
+                <div id="discard-cards-container"
+                    style="display:flex; gap:15px; justify-content:center; flex-wrap:wrap; margin-top:15px;"></div>
             </div>
         </div>
-        
+
         <!-- ターン開始ボーナス選択モーダル -->
         <div id="bonus-choice-modal" class="modal">
             <div class="modal-content" style="text-align:center; max-width:400px;">
@@ -254,7 +301,8 @@
                     ターン開始ボーナス (+3000点) を獲得しますか？
                 </p>
                 <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
-                    <button class="btn" style="background:#27ae60; padding:12px; font-weight:bold;" onclick="chooseBonusChoice(true)">
+                    <button class="btn" style="background:#27ae60; padding:12px; font-weight:bold;"
+                        onclick="chooseBonusChoice(true)">
                         ボーナスを受け取る (+3000点 & カード獲得)
                     </button>
                     <button class="btn" style="background:#7f8c8d; padding:10px;" onclick="chooseBonusChoice(false)">
@@ -415,7 +463,7 @@
         function updatePlayersUI(players, currentTurnPlayerId) {
             const sorted = Object.values(players).sort((a, b) => b.score - a.score);
             const playerList = Object.values(players).sort((a, b) => a.number - b.number);
-            
+
             let myIndex = playerList.findIndex(p => p.id === myId);
             if (myIndex === -1) myIndex = 0;
 
@@ -423,12 +471,12 @@
 
             const seats = {
                 bottom: document.getElementById('seat-bottom'),
-                right:  document.getElementById('seat-right'),
-                top:    document.getElementById('seat-top'),
-                left:   document.getElementById('seat-left')
+                right: document.getElementById('seat-right'),
+                top: document.getElementById('seat-top'),
+                left: document.getElementById('seat-left')
             };
 
-            Object.values(seats).forEach(s => { if(s) s.innerHTML = ''; });
+            Object.values(seats).forEach(s => { if (s) s.innerHTML = ''; });
 
             const seatKeys = ['bottom', 'right', 'top', 'left'];
 
@@ -522,7 +570,7 @@
             const centerStatus = document.getElementById('center-status');
             const bonusModal = document.getElementById('bonus-choice-modal');
             const discardModal = document.getElementById('discard-modal');
-            
+
             const isMyTurn = (data.currentTurnPlayerId === myId);
             const myPlayer = data.players[myId];
 
@@ -538,9 +586,9 @@
                 if (bonusModal) bonusModal.style.display = 'block';
                 roundInfo.innerHTML += ` <span style="color:#f1c40f;">【ボーナス選択中】</span>`;
             } else if (data.turnPhase === 'MAIN') {
-                roundInfo.innerHTML += `<br><span style="color:#f1c40f; font-size: 0.85em;">★ あなたのターンです。</span>`;
+                roundInfo.innerHTML += `<br><span style="color:#f1c40f; font-size: 0.85em;">★ あなたのターンです</span>`;
                 if (centerStatus) centerStatus.innerText = '手札のカードをクリックして使用';
-                
+
                 endTurnBtnContainer.innerHTML = `
                     <button class="btn" style="background:#2980b9; height:100%; white-space:nowrap; margin:0; padding:0 12px; font-weight:bold;" onclick="socket.emit('endTurn')">
                         ターンを<br>終了する
@@ -548,7 +596,7 @@
                 `;
             } else if (data.turnPhase === 'DISCARD') {
                 roundInfo.innerHTML += ` <span style="color:#e74c3c;">【手札オーバー】</span>`;
-                
+
                 const discardContainer = document.getElementById('discard-cards-container');
                 if (discardContainer && myPlayer && myPlayer.hand) {
                     discardContainer.innerHTML = '';
@@ -579,6 +627,20 @@
             const myPlayer = latestGameState.players[myId];
             if (!myPlayer) return;
 
+            // 防御カードセット時のメッセージ用フラグ
+            let isBlockedByDefense = false;
+
+            // 手札から使用しようとして防御カードがセットされている場合の判定
+            if (source === 'HAND') {
+                const targetHandCard = myPlayer.hand.find(c => String(c.instanceId) === String(instanceId));
+                // 防御カードが存在し、かつ例外許可（allowWithDefense）されていないカードの場合
+                if (myPlayer.defenseCard && targetHandCard && !targetHandCard.allowWithDefense) {
+                    isBlockedByDefense = true;
+                    // 防御カード側の操作モーダル表示へ切り替え
+                    source = 'DEFENSE';
+                }
+            }
+
             const modal = document.getElementById('drop-action-modal');
             const preview = document.getElementById('drop-modal-card-preview');
             const actions = document.getElementById('drop-modal-actions');
@@ -591,7 +653,7 @@
             let usesLeft = 1;
 
             if (source === 'HAND') {
-                card = myPlayer.hand.find(c => c.instanceId === instanceId);
+                card = myPlayer.hand.find(c => String(c.instanceId) === String(instanceId));
                 usesLeft = card ? (card.id === 'wood_shield_set' ? (card.usesLeft || 3) : 1) : 1;
             } else if (source === 'DEFENSE') {
                 if (myPlayer.defenseCard) {
@@ -602,7 +664,12 @@
 
             if (!card) return;
 
-            title.innerText = source === 'HAND' ? `【手札操作】${card.name}` : `【防御カード操作】${card.name}`;
+            // ★ モーダル上部のタイトル設定（手札からのリダイレクト時は警告メッセージを最上部に表示）
+            if (isBlockedByDefense) {
+                title.innerHTML = `<span style="color:#e74c3c; font-size:0.9em; display:block; margin-bottom:4px;">防御カードがセットされています</span>【防御カード操作】${card.name}`;
+            } else {
+                title.innerText = source === 'HAND' ? `【手札操作】${card.name}` : `【防御カード操作】${card.name}`;
+            }
 
             preview.innerHTML = `
                 ${card.image ? `<img src="${card.image}" style="width:110px; height:160px; object-fit:contain; border-radius:6px; margin:0 auto; display:block;">` : ''}
@@ -720,4 +787,5 @@
         }
     </script>
 </body>
+
 </html>
