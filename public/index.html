@@ -759,9 +759,9 @@
                                 const isOutOfRange = diff > 5000;
 
                                 if (isImmune) {
-                                    html += `<option value="${p.id}" disabled>${p.name} (${rank}位/選択不可残:${p.immunityCount})</option>`;
+                                    html += `<option value="${p.id}" disabled>${p.name} (選択不可残:${p.immunityCount})</option>`;
                                 } else if (!isOutOfRange) {
-                                    html += `<option value="${p.id}">${p.name} (${rank}位)</option>`;
+                                    html += `<option value="${p.id}">${p.name}</option>`;
                                 }
                             }
                         });
@@ -780,11 +780,6 @@
                                 const lowerNames = lowerPlayers.map(p => p.name).join(',');
                                 html += `<option value="ALL_LOWER">${lowerNames}</option>`;
                             }
-                        }
-                        // 自分より下の順位のプレイヤーが存在する場合の「全員」選択肢
-                        if (lowerPlayers.length > 0) {
-                            const lowerNames = lowerPlayers.map(p => p.name).join(',');
-                            html += `<option value="ALL_LOWER">${lowerNames}</option>`;
                         }
                     } else {
                         // 通常の攻撃対象選択
