@@ -51,7 +51,8 @@ function createInitialState() {
         started: false,
         players: {},
         turnOrder: [],
-        currentTurnIndex: 0,
+        currentTurnPlayerId: null, // currentTurnIndex から ID直接保持へ変更
+        actedPlayerIds: [],        // その巡で既に行動したプレイヤーのID一覧
         round: 1,
         turnPhase: 'WAITING',
         draft: {
@@ -139,7 +140,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('chooseBonus', (acceptBonus) => {
-        const currentTurnId = gameState.turnOrder[gameState.currentTurnIndex];
+        const currentTurnId = gameState.currentTurnPlayerId;
         if (socket.id !== currentTurnId || gameState.turnPhase !== 'BONUS_CHOICE') return;
 
         const player = gameState.players[socket.id];
@@ -150,30 +151,14 @@ io.on('connection', (socket) => {
 
         gameState.turnPhase = 'MAIN';
 
-        socket.broadcast.emit('syncGameState', {
-            players: gameState.players,
-            turnOrder: gameState.turnOrder,
-            currentTurnPlayerId: gameState.turnOrder[gameState.currentTurnIndex],
-            round: gameState.round,
-            turnPhase: gameState.turnPhase,
-            log: `P${player.number} がカードを1枚獲得し、メインフェーズに入りました。`
-        });
-
-        socket.emit('syncGameState', {
-            players: gameState.players,
-            turnOrder: gameState.turnOrder,
-            currentTurnPlayerId: gameState.turnOrder[gameState.currentTurnIndex],
-            round: gameState.round,
-            turnPhase: gameState.turnPhase,
-            log: `「${randomCard.name}」を獲得しました。`
-        });
+        // broadcastGameState を使用することで正しく currentTurnPlayerId が全員に同期されます
+        broadcastGameState(`P${player.number} が「${randomCard.name}」を獲得し、メインフェーズに入りました。`);
     });
 
     socket.on('playCard', ({ instanceId, actionTarget, targetPlayerId, attackCount }) => {
         resetScoreChanges();
 
-        const currentTurnId = gameState.turnOrder[gameState.currentTurnIndex];
-        if (socket.id !== currentTurnId || gameState.turnPhase !== 'MAIN') {
+        const currentTurnId = gameState.currentTurnPlayerId; if (socket.id !== currentTurnId || gameState.turnPhase !== 'MAIN') {
             socket.emit('errorMessage', 'あなたのターンのメインフェーズではありません。');
             return;
         }
@@ -280,8 +265,7 @@ io.on('connection', (socket) => {
     // セット中の防御カードを攻撃として使用
     socket.on('playDefenseAsAttack', ({ targetPlayerId, attackCount }) => {
         resetScoreChanges();
-        const currentTurnId = gameState.turnOrder[gameState.currentTurnIndex];
-        if (socket.id !== currentTurnId || gameState.turnPhase !== 'MAIN') {
+        const currentTurnId = gameState.currentTurnPlayerId; if (socket.id !== currentTurnId || gameState.turnPhase !== 'MAIN') {
             socket.emit('errorMessage', 'メインフェーズでのみ使用できます。');
             return;
         }
@@ -341,8 +325,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('discardDefense', () => {
-        const currentTurnId = gameState.turnOrder[gameState.currentTurnIndex];
-        if (socket.id !== currentTurnId || gameState.turnPhase !== 'MAIN') return;
+        const currentTurnId = gameState.currentTurnPlayerId; if (socket.id !== currentTurnId || gameState.turnPhase !== 'MAIN') return;
         const player = gameState.players[socket.id];
         if (player.defenseCard) {
             player.defenseCard = null;
@@ -352,7 +335,7 @@ io.on('connection', (socket) => {
 
     socket.on('endTurn', () => {
         resetScoreChanges();
-        const currentTurnId = gameState.turnOrder[gameState.currentTurnIndex];
+        const currentTurnId = gameState.currentTurnPlayerId;
         if (socket.id !== currentTurnId) return;
 
         const player = gameState.players[socket.id];
@@ -366,7 +349,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('discardCard', (instanceId) => {
-        const currentTurnId = gameState.turnOrder[gameState.currentTurnIndex];
+        const currentTurnId = gameState.currentTurnPlayerId;
         if (socket.id !== currentTurnId || gameState.turnPhase !== 'DISCARD') return;
 
         const player = gameState.players[socket.id];
@@ -397,9 +380,13 @@ io.on('connection', (socket) => {
 
 // 木の剣の命中判定（順位差判定）
 function checkSwordHitSuccess(attackerId, targetId) {
-    const sorted = Object.values(gameState.players).sort((a, b) => b.score - a.score);
-    const attackerRank = sorted.findIndex(p => p.id === attackerId) + 1;
-    const targetRank = sorted.findIndex(p => p.id === targetId) + 1;
+    const playersList = Object.values(gameState.players);
+    const attacker = gameState.players[attackerId];
+    const target = gameState.players[targetId];
+
+    // 自分より得点が高いプレイヤーの数 + 1 を順位とする（同点は同順位）
+    const attackerRank = playersList.filter(p => p.score > attacker.score).length + 1;
+    const targetRank = playersList.filter(p => p.score > target.score).length + 1;
     const diff = Math.abs(attackerRank - targetRank);
 
     let successRate = 0.5; // ±1
@@ -455,13 +442,13 @@ function executeStandardAttack(attackerId, targetId, cardId) {
 
 function executeWoodSwordAttack(attackerId, targetTypeOrId) {
     const attacker = gameState.players[attackerId];
-    const sorted = Object.values(gameState.players).sort((a, b) => b.score - a.score);
-    const attackerRank = sorted.findIndex(p => p.id === attackerId) + 1;
+    const playersList = Object.values(gameState.players);
+    const attackerRank = playersList.filter(p => p.score > attacker.score).length + 1;
 
     // --- CASE 1: 自分より順位が下のプレイヤー全員への攻撃 ---
     if (targetTypeOrId === 'ALL_LOWER') {
-        const lowerPlayers = sorted.slice(attackerRank); // 自分より順位が下のプレイヤー配列
-
+        // 自分より得点が厳密に低いプレイヤーを抽出
+        const lowerPlayers = playersList.filter(p => p.score < attacker.score);
         if (lowerPlayers.length === 0) {
             broadcastGameState(`P${attacker.number} が「木の剣」を使用しましたが、自分より下の順位のプレイヤーがいませんでした。`);
             return;
@@ -516,8 +503,7 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
     const target = gameState.players[targetTypeOrId];
     if (!target) return;
 
-    const targetRank = sorted.findIndex(p => p.id === target.id) + 1;
-
+    const targetRank = playersList.filter(p => p.score > target.score).length + 1;
     // バリデーションチェック
     if (attackerRank <= targetRank) {
         socket.emit('errorMessage', '自分より下の順位のプレイヤーは個別に対象に指定できません。');
@@ -600,7 +586,7 @@ function executeShieldSetAttack(attackerId, targetId, cardObj, maxAttacks, onCom
         applyScoreChange(target, -3000);
         target.immunityCount = 2; // 選択不可状態を付与
         broadcastGameState(logPrefix + `(成功率:50%) 命中ヒット！ 得点-3000点！ (P${target.number}が選択不可状態になったため攻撃中断)`);
-        
+
         onComplete();
     }
 
@@ -684,23 +670,31 @@ function autoFillDraftAndResolve() {
 
 function finalizeDraftAndStartGame() {
     gameState.started = true;
+    gameState.actedPlayerIds = [];
+
+    // 得点順でソート
     const sortedPlayers = Object.values(gameState.players).sort((a, b) => b.score - a.score);
     gameState.turnOrder = sortedPlayers.map(p => p.id);
-    gameState.currentTurnIndex = 0;
+    gameState.currentTurnPlayerId = sortedPlayers[0].id;
+
     startPlayerTurn();
 }
 
 function startPlayerTurn() {
     gameState.turnPhase = 'BONUS_CHOICE';
-    const currentTurnId = gameState.turnOrder[gameState.currentTurnIndex];
-    const currentPlayer = gameState.players[currentTurnId];
+    const currentPlayer = gameState.players[gameState.currentTurnPlayerId];
 
     let logMsg = `第 ${gameState.round} 巡目: P${currentPlayer.number} のターンが始まりました。`;
     broadcastGameState(logMsg);
 }
 
 function proceedToNextTurn() {
-    const endingPlayerId = gameState.turnOrder[gameState.currentTurnIndex];
+    const endingPlayerId = gameState.currentTurnPlayerId;
+
+    // ターンを終えたプレイヤーを「行動済み」に記録
+    if (endingPlayerId && !gameState.actedPlayerIds.includes(endingPlayerId)) {
+        gameState.actedPlayerIds.push(endingPlayerId);
+    }
 
     // ターンを終えたプレイヤー以外の「選択不可状態」のカウントを減らす
     Object.values(gameState.players).forEach(p => {
@@ -709,30 +703,38 @@ function proceedToNextTurn() {
         }
     });
 
-    gameState.currentTurnIndex++;
-    if (gameState.currentTurnIndex >= gameState.turnOrder.length) {
-        gameState.currentTurnIndex = 0;
+    // 全員がこの巡目で行動を終えたか判定
+    if (gameState.actedPlayerIds.length >= Object.keys(gameState.players).length) {
+        // --- 巡目の終了と次の巡目の準備 ---
+        gameState.actedPlayerIds = []; // 行動済みリストをリセット
         gameState.round++;
 
-        const sortedPlayers = Object.values(gameState.players).sort((a, b) => b.score - a.score);
-        gameState.turnOrder = sortedPlayers.map(p => p.id);
+        if (gameState.round > 10) {
+            const winner = Object.values(gameState.players).sort((a, b) => b.score - a.score)[0];
+            io.emit('gameOver', { winner, players: gameState.players });
+            return;
+        }
     }
 
-    if (gameState.round > 10) {
-        const winner = Object.values(gameState.players).sort((a, b) => b.score - a.score)[0];
-        io.emit('gameOver', { winner, players: gameState.players });
-        return;
+    // ★現在の最新スコア順でプレイヤーをソート（降順）
+    const sortedPlayers = Object.values(gameState.players).sort((a, b) => b.score - a.score);
+    gameState.turnOrder = sortedPlayers.map(p => p.id);
+
+    // ★まだ行動していない最高順位のプレイヤーを探す
+    const nextPlayer = sortedPlayers.find(p => !gameState.actedPlayerIds.includes(p.id));
+
+    if (nextPlayer) {
+        gameState.currentTurnPlayerId = nextPlayer.id;
     }
 
     startPlayerTurn();
 }
 
 function broadcastGameState(logMessage = '') {
-    const currentTurnId = gameState.turnOrder[gameState.currentTurnIndex];
     io.emit('syncGameState', {
         players: gameState.players,
         turnOrder: gameState.turnOrder,
-        currentTurnPlayerId: currentTurnId,
+        currentTurnPlayerId: gameState.currentTurnPlayerId,
         round: gameState.round,
         turnPhase: gameState.turnPhase,
         log: logMessage

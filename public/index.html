@@ -536,8 +536,8 @@
 
                 const isMe = (p.id === myId);
                 const isTurn = (p.id === currentTurnPlayerId);
-                const rank = sorted.findIndex(sp => sp.id === p.id) + 1;
-
+                // 自分より得点が高いプレイヤーの数 + 1 を順位とする
+                const rank = Object.values(players).filter(sp => sp.score > p.score).length + 1;
                 const box = document.createElement('div');
                 box.className = `player-box ${isTurn ? 'active' : ''}`;
 
@@ -746,14 +746,14 @@
 
                     if (card.id === 'wood_sword') {
                         // 木の剣専用の対象選択肢
-                        const sorted = Object.values(latestGameState.players).sort((a, b) => b.score - a.score);
-                        const myRank = sorted.findIndex(p => p.id === myId) + 1;
+                        const allPlayers = Object.values(latestGameState.players);
                         const myScore = myPlayer.score;
+                        const myRank = allPlayers.filter(p => p.score > myScore).length + 1;
 
-                        // 自分より上の順位のプレイヤー（得点差5000点以内のみ抽出）
-                        sorted.forEach((p, index) => {
-                            const rank = index + 1;
-                            if (rank < myRank) {
+                        // 自分より得点が高い（上位の）プレイヤーを抽出
+                        allPlayers.forEach((p) => {
+                            if (p.score > myScore) {
+                                const rank = allPlayers.filter(sp => sp.score > p.score).length + 1;
                                 const diff = p.score - myScore;
                                 const isImmune = p.immunityCount && p.immunityCount > 0;
                                 const isOutOfRange = diff > 5000;
@@ -761,17 +761,14 @@
                                 if (isImmune) {
                                     html += `<option value="${p.id}" disabled>${p.name} (${rank}位/選択不可残:${p.immunityCount})</option>`;
                                 } else if (!isOutOfRange) {
-                                    // 5000点差以内の場合のみ攻撃対象リストへ追加（5000点超は除外）
-                                    html += `<option value="${p.id}">${p.name}</option>`;
+                                    html += `<option value="${p.id}">${p.name} (${rank}位)</option>`;
                                 }
                             }
                         });
 
-                        // 自分より下の順位のプレイヤーが存在する場合の「全員」選択肢
-                        if (myRank < sorted.length) {
-                            let lowerPlayers = sorted.slice(myRank);
-
-                            // 1巡目の場合、自分より後に行動するプレイヤーを全員攻撃の対象から除外
+                        // 自分より得点が低い（下位の）プレイヤーが存在する場合
+                        let lowerPlayers = allPlayers.filter(p => p.score < myScore);
+                        if (lowerPlayers.length > 0) {
                             if (latestGameState.round === 1) {
                                 lowerPlayers = lowerPlayers.filter(p => {
                                     const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
@@ -783,6 +780,11 @@
                                 const lowerNames = lowerPlayers.map(p => p.name).join(',');
                                 html += `<option value="ALL_LOWER">${lowerNames}</option>`;
                             }
+                        }
+                        // 自分より下の順位のプレイヤーが存在する場合の「全員」選択肢
+                        if (lowerPlayers.length > 0) {
+                            const lowerNames = lowerPlayers.map(p => p.name).join(',');
+                            html += `<option value="ALL_LOWER">${lowerNames}</option>`;
                         }
                     } else {
                         // 通常の攻撃対象選択
