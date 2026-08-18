@@ -148,9 +148,9 @@
             vertical-align: middle;
         }
 
-        /* ドラッグ可能な防御カード */
+        /* ドラッグ可能（防御カード）のカーソルを変更 */
         .draggable-def-card {
-            cursor: grab;
+            cursor: pointer; /* ★ grab から pointer に変更 */
             border: 1px dashed #f1c40f;
         }
 
@@ -185,7 +185,7 @@
             background-color: #000;
             border-radius: 6px;
             display: block;
-            cursor: grab;
+            cursor: pointer; /* ★ grab から pointer に変更 */
             border: 2px solid #475569;
             transition: transform 0.2s ease, border-color 0.2s ease;
         }
@@ -266,13 +266,8 @@
                 <!-- 下家（右） -->
                 <div class="seat-right" id="seat-right"></div>
 
-                <!-- 卓の中央（ログ＆ドロップエリア） -->
-                <!-- 卓の中央（ログ＆ドロップエリア） -->
-                <div class="table-center" 
-                     ondragover="handleCenterDragOver(event)" 
-                     ondragenter="handleCenterDragEnter(event)" 
-                     ondragleave="handleCenterDragLeave(event)" 
-                     ondrop="handleCenterDrop(event)">
+                <!-- 卓の中央（ログエリア） -->
+                <div class="table-center">
                     <div id="round-info" style="font-size: 1.1em; font-weight: bold; text-align: center; color: #f1c40f;"></div>
                     
                     <!-- ログとターン終了ボタンの横並びエリア -->
@@ -282,7 +277,7 @@
                     </div>
 
                     <div id="center-status" style="font-size: 0.85em; text-align: center; color: #38bdf8; font-weight: bold;">
-                        ここにカードをドラッグ＆ドロップして使用
+                        手札のカードをクリックして使用
                     </div>
                 </div>
 
@@ -368,7 +363,6 @@
         let myPlayerNumber = null;
         let latestGameState = null;
         let currentCardSettings = {};
-        let draggedCardData = null;
 
         const CARD_NAMES = {
             gold_bag: '金袋',
@@ -515,52 +509,6 @@
             updateTurnControls(data);
         });
 
-        // --- ドラッグ＆ドロップ用処理 ---
-        function handleCardDragStart(event, instanceId, source) {
-            draggedCardData = { instanceId, source };
-            event.dataTransfer.setData('text/plain', JSON.stringify(draggedCardData));
-        }
-
-        function handleCenterDragOver(event) {
-            event.preventDefault();
-            event.dataTransfer.dropEffect = 'move';
-        }
-
-        function handleCenterDragEnter(event) {
-            event.preventDefault();
-            const center = document.querySelector('.table-center');
-            if (center) center.classList.add('drag-over');
-        }
-
-        function handleCenterDragLeave(event) {
-            const center = document.querySelector('.table-center');
-            if (center) center.classList.remove('drag-over');
-        }
-
-        function handleCenterDrop(event) {
-            event.preventDefault();
-            const center = document.querySelector('.table-center');
-            if (center) center.classList.remove('drag-over');
-
-            if (!latestGameState) return;
-
-            const currentTurnId = latestGameState.currentTurnPlayerId;
-            if (myId !== currentTurnId || latestGameState.turnPhase !== 'MAIN') {
-                alert('自分のターンのメインフェーズでのみカードを使用・配置できます。');
-                return;
-            }
-
-            let data = draggedCardData;
-            try {
-                const raw = event.dataTransfer.getData('text/plain');
-                if (raw) data = JSON.parse(raw);
-            } catch(e){}
-
-            if (!data) return;
-
-            openDropCardModal(data.source, data.instanceId);
-        }
-
         // --- UIレンダリング ---
         function updatePlayersUI(players, currentTurnPlayerId) {
             const sorted = Object.values(players).sort((a, b) => b.score - a.score);
@@ -596,14 +544,15 @@
                 const box = document.createElement('div');
                 box.className = `player-box ${isTurn ? 'active' : ''}`;
 
-                // 防御カード情報の表示（自分の防御カードはドラッグ可能）
+                // 防御カード情報の表示（自分の防御カードはクリック可能）
                 let defInfo = '<span style="color:#7f8c8d;">なし</span>';
                 if (p.defenseCard) {
                     const card = p.defenseCard.card;
-                    const isDraggable = isMe ? 'draggable="true" ondragstart="handleCardDragStart(event, null, \'DEFENSE\')"' : '';
+                    // ★ draggable 属性を削除し、onclick で openDropCardModal を呼ぶよう変更
+                    const clickAttr = isMe ? `onclick="openDropCardModal('DEFENSE', null)"` : '';
                     defInfo = `
                         <span style="color:#2ecc71;">
-                            ${card.image ? `<img src="${card.image}" class="mini-card-icon ${isMe ? 'draggable-def-card' : ''}" ${isDraggable} title="${isMe ? '中央エリアにドラッグして操作' : ''}">` : ''}
+                            ${card.image ? `<img src="${card.image}" class="mini-card-icon ${isMe ? 'draggable-def-card' : ''}" ${clickAttr} title="${isMe ? 'クリックして操作' : ''}">` : ''}
                             ${card.name} (${p.defenseCard.usesLeft}回)
                         </span>
                     `;
@@ -642,13 +591,14 @@
                 // 自分の手札埋め込み処理
                 let handHtml = '';
                 if (isMe) {
-                    handHtml += `<div style="margin-top:6px;"><b>手札 (中央へドラッグして使用):</b>`;
+                    handHtml += `<div style="margin-top:6px;"><b>手札 (クリックして使用):</b>`;
                     if (p.hand && p.hand.length > 0) {
                         handHtml += `<div class="my-hand-container">`;
                         p.hand.forEach(card => {
+                            // ★ draggable と ondragstart を削除し、onclick="openDropCardModal('HAND', '${card.instanceId}')" を追加
                             handHtml += `
                                 <div class="hand-card-wrapper">
-                                    <img src="${card.image}" class="card-img" alt="${card.name}" draggable="true" ondragstart="handleCardDragStart(event, '${card.instanceId}', 'HAND')">
+                                    <img src="${card.image}" class="card-img" alt="${card.name}" onclick="openDropCardModal('HAND', '${card.instanceId}')">
                                     <div class="card-tooltip">
                                         <div style="font-weight: bold; color: #f1c40f; margin-bottom: 3px;">${card.name}</div>
                                         <div>${card.desc}</div>
@@ -718,7 +668,7 @@
                 if (bonusModal) bonusModal.style.display = 'block';
                 roundInfo.innerHTML += ` <span style="color:#f1c40f;">【ボーナス選択中】</span>`;
             } else if (data.turnPhase === 'MAIN') {
-                roundInfo.innerHTML += `<br><span style="color:#f1c40f; font-size: 0.85em;">★ あなたのターンです。手札や防御カードを画面中央へドラッグ＆ドロップして操作してください。</span>`;
+                roundInfo.innerHTML += `<br><span style="color:#f1c40f; font-size: 0.85em;">★ あなたのターンです</span>`;
                 
                 endTurnBtnContainer.innerHTML = `
                     <button class="btn" style="background:#2980b9; height:100%; white-space:nowrap; margin:0; padding:0 12px; font-weight:bold;" onclick="socket.emit('endTurn')">
@@ -753,6 +703,14 @@
 
         function openDropCardModal(source, instanceId) {
             if (!latestGameState) return;
+
+            // ★ 自分のターンのメインフェーズ以外ではポップアップを開かない（警告を表示）
+            const currentTurnId = latestGameState.currentTurnPlayerId;
+            if (myId !== currentTurnId || latestGameState.turnPhase !== 'MAIN') {
+                alert('自分のターンのメインフェーズでのみカードを使用・操作できます。');
+                return;
+            }
+
             const myPlayer = latestGameState.players[myId];
             if (!myPlayer) return;
 
