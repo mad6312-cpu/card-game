@@ -731,21 +731,23 @@ function executeDisasterAttack(casterSocketId) {
             const rank = rankMap[player.id];
             const damage = damageByRank[rank] || 0;
 
-            // ★追加：「無敵状態」でなく、かつ選択不可状態でもない場合のみダメージ適用
             const isInvincible = player.invincibleTurns && player.invincibleTurns > 0;
             const isImmune = player.immunityCount && player.immunityCount > 0;
 
+            // 無敵状態・選択不可状態でなければダメージ適用＋選択不可状態付与
             if (!isInvincible && !isImmune) {
                 applyScoreChange(player, damage);
                 player.immunityCount = 2;
             }
 
-            // 無敵状態であっても「大災害」を受けた場合は手札・防御カードが破棄される
-            player.hand = player.hand.filter(c => c.id === 'invincible_armor'); // 無敵アーマー自体は破棄されない
-            player.defenseCard = null;
+            // ★修正: 無敵状態でないプレイヤーのみ手札と防御カードを破棄する[cite: 13]
+            if (!isInvincible) {
+                player.hand = [];
+                player.defenseCard = null;
+            }
         });
 
-        broadcastGameState(`P${caster.number} が「大災害」を発動！(無敵状態・選択不可状態のプレイヤーはダメージ無効化)`);
+        broadcastGameState(`P${caster.number} が「大災害」を発動！(無敵状態のプレイヤーはダメージ・カード破棄を無効化)`);
 
     }, 2000);
 }
