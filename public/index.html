@@ -929,12 +929,8 @@
                                 const scoreDiff = p.score - myScore;
                                 const isImmune = p.immunityCount && p.immunityCount > 0;
 
-                                if (scoreDiff >= 0 && scoreDiff <= 5000) {
-                                    if (isImmune) {
-                                        html += `<option value="${p.id}" disabled data-hitrate="50%">${p.name} (選択不可残:${p.immunityCount}) [命中率: 50%]</option>`;
-                                    } else {
-                                        html += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
-                                    }
+                                if (scoreDiff >= 0 && scoreDiff <= 5000 && !isImmune) {
+                                    html += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
                                 }
                             }
                         });
@@ -958,10 +954,9 @@
                         Object.values(latestGameState.players).forEach(p => {
                             if (p.id !== myId) {
                                 const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
+                                const isImmune = p.immunityCount && p.immunityCount > 0;
                                 if (latestGameState.round === 1 && pOrderIdx > myOrderIdx) {
-                                } else if (p.immunityCount && p.immunityCount > 0) {
-                                    html += `<option value="${p.id}" disabled data-hitrate="50%">${p.name} (選択不可残:${p.immunityCount}) [命中率: 50%]</option>`;
-                                } else {
+                                } else if (!isImmune) {
                                     html += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
                                 }
                             }
@@ -998,10 +993,9 @@
                 Object.values(latestGameState.players).forEach(p => {
                     if (p.id !== myId) {
                         const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
+                        const isImmune = p.immunityCount && p.immunityCount > 0;
                         if (latestGameState.round === 1 && pOrderIdx > myOrderIdx) {
-                        } else if (p.immunityCount && p.immunityCount > 0) {
-                            html += `<option value="${p.id}" disabled data-hitrate="50%">${p.name} (選択不可残:${p.immunityCount}) [命中率: 50%]</option>`;
-                        } else {
+                        } else if (!isImmune) {
                             html += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
                         }
                     }

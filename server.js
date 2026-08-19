@@ -28,7 +28,7 @@ const CARD_DECK = [
         name: '木の剣',
         category: 'ATTACK',
         image: '/images/wood_sword.png',
-        desc: '攻撃: 自分より上位なら単体(5000点差以内/成功率1/2)、下位なら全員順次判定(成功率1/2) / 防御: 攻撃を1度無効'
+        desc: '攻撃: 自分より上位なら単体(5000点差以内/成功率1/2)、下位なら全員順次判定(成功率1/2) / 防御: 攻撃を1度無効(高得点者からの攻撃は無効化不可)'
     },
     {
         id: 'gold_bag',
@@ -426,15 +426,8 @@ function executeStandardAttack(attackerId, targetId, cardId) {
     let logPrefix = `P${attacker.number} が P${target.number} に「${cardName}」で攻撃！ `;
 
     // 1. 先に攻撃の命中判定を行う
-    let isHit = false;
-    let rateText = '';
-    if (cardId === 'wood_sword') {
-        isHit = Math.random() < 0.5;
-        rateText = `(成功率:50%) `;
-    } else {
-        isHit = Math.random() < 0.5;
-        rateText = `(成功率:50%) `;
-    }
+    let isHit = Math.random() < 0.5;
+    let rateText = `(成功率:50%) `;
 
     // 2. 攻撃が失敗（ミス）した場合：防御カードは消費されずに攻撃失敗
     if (!isHit) {
@@ -444,17 +437,26 @@ function executeStandardAttack(attackerId, targetId, cardId) {
 
     // 3. 攻撃が成功した場合：防御カードの有無を確認してガード判定
     if (target.defenseCard) {
-        target.defenseCard.usesLeft -= 1;
-        let msg = logPrefix + rateText + `命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
-        if (target.defenseCard.usesLeft <= 0) {
-            target.defenseCard = null;
-            msg += '（相手の防御カード破棄）';
+        // ★追加: 防御カードが「木の剣」かつ、攻撃者が防御者より高得点の場合は無効化不可
+        const isWoodSwordDefense = target.defenseCard.card.id === 'wood_sword';
+        const isAttackerHigherScore = attacker.score > target.score;
+
+        if (isWoodSwordDefense && isAttackerHigherScore) {
+            broadcastGameState(logPrefix + rateText + `命中！相手は「木の剣」をセット中ですが、自分より得点が高いプレイヤーからの攻撃のため防御効果が発動しません！`);
+            // ここで return せず、下のダメージ処理へそのまま進行（target.defenseCard は減算・破棄されない）
+        } else {
+            target.defenseCard.usesLeft -= 1;
+            let msg = logPrefix + rateText + `命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
+            if (target.defenseCard.usesLeft <= 0) {
+                target.defenseCard = null;
+                msg += '（相手の防御カード破棄）';
+            }
+            broadcastGameState(msg);
+            return;
         }
-        broadcastGameState(msg);
-        return;
     }
 
-    // 4. 防御カードがない場合：そのままダメージ適用
+    // 4. 防御カードがない（または防御不可だった）場合：そのままダメージ適用
     applyScoreChange(target, -3000);
     target.immunityCount = 2; // 選択不可状態
     broadcastGameState(logPrefix + rateText + `命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました)`);
@@ -512,23 +514,32 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
                 return;
             }
 
-            // 防御カードチェック（防御カードで無効化された場合は攻撃中断）
+            // 防御カードチェック
             if (target.defenseCard) {
-                target.defenseCard.usesLeft -= 1;
-                let msg = logPrefix + `命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
-                if (target.defenseCard.usesLeft <= 0) {
-                    target.defenseCard = null;
-                    msg += '（相手の防御カード破棄）';
+                // ★追加: 防御カードが「木の剣」かつ、攻撃者が防御者より高得点の場合は無効化不可
+                const isWoodSwordDefense = target.defenseCard.card.id === 'wood_sword';
+                const isAttackerHigherScore = attacker.score > target.score;
+
+                if (isWoodSwordDefense && isAttackerHigherScore) {
+                    broadcastGameState(logPrefix + `命中！相手は「木の剣」をセット中ですが、自分より得点が高いプレイヤーからの攻撃のため防御効果が発動しません！`);
+                    // return せずにそのまま下のダメージ適用処理へ進む
+                } else {
+                    target.defenseCard.usesLeft -= 1;
+                    let msg = logPrefix + `命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
+                    if (target.defenseCard.usesLeft <= 0) {
+                        target.defenseCard = null;
+                        msg += '（相手の防御カード破棄）';
+                    }
+                    broadcastGameState(msg);
+                    return; // ★ 防御カードでの無効化時も範囲攻撃を中断
                 }
-                broadcastGameState(msg);
-                return; // ★ 防御カードでの無効化時も範囲攻撃を中断
             }
 
             // ダメージ適用（得点変動）＆ 攻撃中断
             applyScoreChange(target, -3000);
             target.immunityCount = 2;
             broadcastGameState(logPrefix + `命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました。)`);
-            return; // ★ 命中ヒット時も範囲攻撃を中断
+            return;
         }
 
         processNextLowerTarget();
@@ -561,14 +572,23 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
     }
 
     if (target.defenseCard) {
-        target.defenseCard.usesLeft -= 1;
-        let msg = logPrefix + `(成功率:50%) 命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
-        if (target.defenseCard.usesLeft <= 0) {
-            target.defenseCard = null;
-            msg += '（相手の防御カード破棄）';
+        // 防御カードが「木の剣」かつ、攻撃者が防御者より高得点の場合は無効化不可
+        const isWoodSwordDefense = target.defenseCard.card.id === 'wood_sword';
+        const isAttackerHigherScore = attacker.score > target.score;
+
+        if (isWoodSwordDefense && isAttackerHigherScore) {
+            broadcastGameState(logPrefix + `(成功率:50%) 命中！相手は「木の剣」をセット中ですが、自分より得点が高いプレイヤーからの攻撃のため防御効果が発動しません！`);
+            // ここで return せず後続のダメージ処理へ進む（防御カードも削除しない）
+        } else {
+            target.defenseCard.usesLeft -= 1;
+            let msg = logPrefix + `(成功率:50%) 命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
+            if (target.defenseCard.usesLeft <= 0) {
+                target.defenseCard = null;
+                msg += '（相手の防御カード破棄）';
+            }
+            broadcastGameState(msg);
+            return;
         }
-        broadcastGameState(msg);
-        return;
     }
 
     applyScoreChange(target, -3000);
