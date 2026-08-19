@@ -951,13 +951,26 @@
                             }
                         }
                     } else {
+                        // 手札から操作する場合の「ATTACK」部分のリスト構築処理
                         Object.values(latestGameState.players).forEach(p => {
                             if (p.id !== myId) {
                                 const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
                                 const isImmune = p.immunityCount && p.immunityCount > 0;
+
                                 if (latestGameState.round === 1 && pOrderIdx > myOrderIdx) {
+                                    // 1巡目は自分より後のプレイヤーを選択不可
                                 } else if (!isImmune) {
-                                    html += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
+                                    if (card.id === 'wood_shield' || card.id === 'wood_shield_set') {
+                                        const diff = myPlayer.score - p.score;
+                                        // 得点差が ±10000点以上（命中率0%）の場合は除外
+                                        if (Math.abs(diff) < 10000) {
+                                            const hitRate = Math.max(0, 1 - Math.abs(diff) / 10000);
+                                            const ratePercent = Math.round(hitRate * 100);
+                                            html += `<option value="${p.id}" data-hitrate="${ratePercent}%">${p.name} (命中率: ${ratePercent}%)</option>`;
+                                        }
+                                    } else {
+                                        html += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
+                                    }
                                 }
                             }
                         });
@@ -990,13 +1003,25 @@
                 html += `<div style="background:#1a252f; padding:10px; border-radius:6px; margin-bottom:10px; text-align:left;">`;
                 html += `<b style="color:#e74c3c;">⚔ 防御を外して攻撃:</b><br>`;
                 html += `対象: <select id="drop-def-attack-target" onchange="updateHitRateDisplay(this)">`;
+                // 防御カードを解除して攻撃する場合のリスト構築処理 (source === 'DEFENSE')
                 Object.values(latestGameState.players).forEach(p => {
                     if (p.id !== myId) {
                         const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
                         const isImmune = p.immunityCount && p.immunityCount > 0;
                         if (latestGameState.round === 1 && pOrderIdx > myOrderIdx) {
+                            // 1巡目は自分より後のプレイヤーを選択不可
                         } else if (!isImmune) {
-                            html += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
+                            if (card.id === 'wood_shield' || card.id === 'wood_shield_set') {
+                                const diff = myPlayer.score - p.score;
+                                // 得点差が ±10000点以上（命中率0%）の場合は除外
+                                if (Math.abs(diff) < 10000) {
+                                    const hitRate = Math.max(0, 1 - Math.abs(diff) / 10000);
+                                    const ratePercent = Math.round(hitRate * 100);
+                                    html += `<option value="${p.id}" data-hitrate="${ratePercent}%">${p.name} (命中率: ${ratePercent}%)</option>`;
+                                }
+                            } else {
+                                html += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
+                            }
                         }
                     }
                 });
