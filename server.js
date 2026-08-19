@@ -688,50 +688,61 @@ function executeShieldSetAttack(attackerId, targetId, cardObj, maxAttacks, onCom
 // 大災害カードの実行処理
 function executeDisasterAttack(casterSocketId) {
     const caster = gameState.players[casterSocketId];
+    if (!caster) return;
 
-    // 1. 大災害発動直前の全プレイヤーのスコア・順位スナップショットを作成
-    const initialPlayers = Object.values(gameState.players).map(p => ({
-        id: p.id,
-        score: p.score
-    }));
-
-    // 自分より得点が高いプレイヤーの数 + 1 を順位とする（同点の場合は同じ順位・同じマイナス点）
-    const rankMap = {};
-    initialPlayers.forEach(p => {
-        const higherCount = initialPlayers.filter(other => other.score > p.score).length;
-        rankMap[p.id] = higherCount + 1;
+    // 1. まずクライアント全体へカットイン演出を指示 (これは即時送信)
+    io.emit('showCutIn', {
+        title: '大災害発動！',
+        imagePath: '/images/disaster.png' // 大災害のカード画像パス
     });
 
-    // 順位に応じたダメージ定義
-    const damageByRank = {
-        1: -6000,
-        2: -4000,
-        3: -2000,
-        4: -1000
-    };
+    // 2. カットイン演出が終わるまでの間（2000ms = 2秒）カード破棄や数値更新を遅延させる
+    setTimeout(() => {
+        // 大災害発動時点の全プレイヤーのスコア・順位スナップショットを作成
+        const initialPlayers = Object.values(gameState.players).map(p => ({
+            id: p.id,
+            score: p.score
+        }));
 
-    // 2. 使用者以外の全員に効果を適用
-    Object.values(gameState.players).forEach(player => {
-        if (player.id === casterSocketId) return; // 使用者自身は除外
+        // 自分より得点が高いプレイヤーの数 + 1 を順位とする（同点の場合は同じ順位・同じマイナス点）
+        const rankMap = {};
+        initialPlayers.forEach(p => {
+            const higherCount = initialPlayers.filter(other => other.score > p.score).length;
+            rankMap[p.id] = higherCount + 1;
+        });
 
-        const rank = rankMap[player.id];
-        const damage = damageByRank[rank] || 0;
+        // 順位に応じたダメージ定義
+        const damageByRank = {
+            1: -6000,
+            2: -4000,
+            3: -2000,
+            4: -1000
+        };
 
-        // ★ 選択不可状態（immunityCount > 0）でない場合のみ得点ダメージを適用
-        if (!player.immunityCount || player.immunityCount <= 0) {
-            applyScoreChange(player, damage);
+        // 使用者以外の全員に効果を適用
+        Object.values(gameState.players).forEach(player => {
+            if (player.id === casterSocketId) return; // 使用者自身は除外
 
-            // 選択不可状態（1巡分）を新規付与
-            player.immunityCount = 2;
-        }
+            const rank = rankMap[player.id];
+            const damage = damageByRank[rank] || 0;
 
-        // 手札・防御カードを全破棄（すでに選択不可状態のプレイヤーにも適用）
-        player.hand = [];
-        player.defenseCard = null;
-    });
+            // 選択不可状態（immunityCount > 0）でない場合のみ得点ダメージを適用
+            if (!player.immunityCount || player.immunityCount <= 0) {
+                applyScoreChange(player, damage);
 
-    // 3. ゲーム状態の全体同期とログ出力
-    broadcastGameState(`P${caster.number} が「大災害」を発動！(選択不可状態のプレイヤーはダメージ無効化)`);
+                // 選択不可状態（1巡分）を新規付与
+                player.immunityCount = 2;
+            }
+
+            // 手札・防御カードを全破棄（すでに選択不可状態のプレイヤーにも適用）
+            player.hand = [];
+            player.defenseCard = null;
+        });
+
+        // 3. 処理完了後にゲーム状態を全体同期＆ログ送信（ここで画面上のスコアやカードが更新されます）
+        broadcastGameState(`P${caster.number} が「大災害」を発動！(選択不可状態のプレイヤーはダメージ無効化)`);
+
+    }, 2000); // 演出時間に合わせて遅延時間を調整してください (例: 1500～2000ms)
 }
 
 function skipDraftAndStartGame() {

@@ -295,6 +295,72 @@
             opacity: 1;
         }
 
+        /* オーバーレイ全体 */
+        .cutin-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            pointer-events: none;
+            /* ゲーム操作を邪魔しない */
+        }
+
+        .cutin-overlay.hidden {
+            display: none;
+        }
+
+        /* カットインアニメーション（出現して拡大） */
+        .cutin-content {
+            text-align: center;
+            animation: cutInAnimation 2.5s ease-in-out forwards;
+        }
+
+        .cutin-content img {
+            max-width: 300px;
+            border-radius: 12px;
+            box-shadow: 0 0 20px rgba(255, 0, 0, 0.8);
+        }
+
+        .cutin-content h1 {
+            color: #ff3333;
+            font-size: 3rem;
+            margin-top: 10px;
+            text-shadow: 0 0 10px #000;
+        }
+
+        @keyframes cutInAnimation {
+            0% {
+                transform: scale(0.2);
+                opacity: 0;
+            }
+
+            20% {
+                transform: scale(1.1);
+                opacity: 1;
+            }
+
+            30% {
+                transform: scale(1.0);
+                opacity: 1;
+            }
+
+            80% {
+                transform: scale(1.0);
+                opacity: 1;
+            }
+
+            100% {
+                transform: scale(1.5);
+                opacity: 0;
+            }
+        }
+
         /* 画面左上のデバッグスコアパネル */
         .debug-score-panel {
             position: fixed;
@@ -463,6 +529,13 @@
         </div>
     </div>
 
+    <div id="cutin-overlay" class="cutin-overlay hidden">
+        <div class="cutin-content">
+            <img id="cutin-image" src="" alt="カードイラスト">
+            <h1 id="cutin-title"></h1>
+        </div>
+    </div>
+
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
@@ -496,6 +569,27 @@
         socket.on('updateCardSettings', (settings) => {
             currentCardSettings = settings;
             renderCardSwitches();
+        });
+
+        // サーバーからのカットイン指示を受信
+        socket.on('showCutIn', (data) => {
+            // 操作中モーダルが開いていれば閉じる
+            closeDropActionModal();
+
+            const overlay = document.getElementById('cutin-overlay');
+            const img = document.getElementById('cutin-image');
+            const title = document.getElementById('cutin-title');
+
+            img.src = data.imagePath;
+            title.textContent = data.title;
+
+            // 表示開始
+            overlay.classList.remove('hidden');
+
+            // アニメーション終了（2.5秒後）に自動で隠す
+            setTimeout(() => {
+                overlay.classList.add('hidden');
+            }, 2500);
         });
 
         function renderCardSwitches() {
