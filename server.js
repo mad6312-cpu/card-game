@@ -36,6 +36,13 @@ const CARD_DECK = [
         category: 'SCORE',
         image: '/images/gold_bag.png',
         desc: '自分の得点+3000'
+    },
+    {
+        id: 'disaster',
+        name: '大災害',
+        category: 'ATTACK',
+        image: '/images/disaster.png', // ※適切な画像パスを指定してください
+        desc: '使用者以外全員対象(命中100%)。手札/防御カード全破棄。1位:-6000/2位:-4000/3位:-2000/4位:-1000。ダメージ対象は選択不可(1巡分)付与。'
     }
 ];
 
@@ -43,7 +50,8 @@ let cardSettings = {
     gold_bag: true,
     wood_sword: true,
     wood_shield: true,
-    wood_shield_set: true
+    wood_shield_set: true,
+    disaster: true
 };
 
 function createInitialState() {
@@ -160,13 +168,14 @@ io.on('connection', (socket) => {
         }
     });
 
+    // 1. chooseBonus ハンドラ冒頭に resetScoreChanges() を追加
     socket.on('chooseBonus', (acceptBonus) => {
+        resetScoreChanges(); // ★追加：ターン開始ボーナス時の変化をリセットしてクリアにする
         const currentTurnId = gameState.currentTurnPlayerId;
         if (socket.id !== currentTurnId || gameState.turnPhase !== 'BONUS_CHOICE') return;
 
         const player = gameState.players[socket.id];
         if (acceptBonus) applyScoreChange(player, 3000);
-
         const randomCard = getRandomAvailableCard(player);
         player.hand.push(randomCard);
 
@@ -219,12 +228,14 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // 1. 金袋の使用
+        // playCard 内のカード種別分岐（金袋の次など）に追加
         if (card.id === 'gold_bag') {
             applyScoreChange(player, 3000);
             player.hand.splice(cardIndex, 1);
             broadcastGameState(`P${player.number} が「金袋」を使用し、+3000点獲得しました！`);
-
+        } else if (card.id === 'disaster') { // ★ 追加[cite: 28]
+            player.hand.splice(cardIndex, 1);
+            executeDisasterAttack(socket.id);
             // 2. 攻撃アクション
         } else if (actionTarget === 'ATTACK') {
             if (!targetPlayerId) {
@@ -674,6 +685,55 @@ function executeShieldSetAttack(attackerId, targetId, cardObj, maxAttacks, onCom
     doNextAttack();
 }
 
+// 大災害カードの実行処理
+function executeDisasterAttack(casterSocketId) {
+    const caster = gameState.players[casterSocketId];
+
+    // 1. 大災害発動直前の全プレイヤーのスコア・順位スナップショットを作成
+    const initialPlayers = Object.values(gameState.players).map(p => ({
+        id: p.id,
+        score: p.score
+    }));
+
+    // 自分より得点が高いプレイヤーの数 + 1 を順位とする（同点の場合は同じ順位・同じマイナス点）
+    const rankMap = {};
+    initialPlayers.forEach(p => {
+        const higherCount = initialPlayers.filter(other => other.score > p.score).length;
+        rankMap[p.id] = higherCount + 1;
+    });
+
+    // 順位に応じたダメージ定義
+    const damageByRank = {
+        1: -6000,
+        2: -4000,
+        3: -2000,
+        4: -1000
+    };
+
+    // 2. 使用者以外の全員に効果を適用
+    Object.values(gameState.players).forEach(player => {
+        if (player.id === casterSocketId) return; // 使用者自身は除外
+
+        const rank = rankMap[player.id];
+        const damage = damageByRank[rank] || 0;
+
+        // ★ 選択不可状態（immunityCount > 0）でない場合のみ得点ダメージを適用
+        if (!player.immunityCount || player.immunityCount <= 0) {
+            applyScoreChange(player, damage);
+
+            // 選択不可状態（1巡分）を新規付与
+            player.immunityCount = 2;
+        }
+
+        // 手札・防御カードを全破棄（すでに選択不可状態のプレイヤーにも適用）
+        player.hand = [];
+        player.defenseCard = null;
+    });
+
+    // 3. ゲーム状態の全体同期とログ出力
+    broadcastGameState(`P${caster.number} が「大災害」を発動！(選択不可状態のプレイヤーはダメージ無効化)`);
+}
+
 function skipDraftAndStartGame() {
     gameState.draft.phase = 'FINISHED';
     const scoreMap = { 1: 5000, 2: 1000, 3: -1000, 4: -5000 };
@@ -829,8 +889,9 @@ function resetScoreChanges() {
     });
 }
 
+// 2. applyScoreChange から resetScoreChanges() の呼び出しを削除
 function applyScoreChange(player, amount) {
-    resetScoreChanges();
+    // resetScoreChanges(); ← この行を削除して複数人のスコア変動情報を維持できるようにする
     player.prevScore = player.score;
     player.scoreChange = amount;
     player.score += amount;

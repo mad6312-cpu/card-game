@@ -475,7 +475,8 @@
             gold_bag: '金袋',
             wood_sword: '木の剣',
             wood_shield: '木の盾',
-            wood_shield_set: '木の盾セット'
+            wood_shield_set: '木の盾セット',
+            disaster: '大災害' // 追加
         };
 
         socket.on('connect', () => { myId = socket.id; });
@@ -914,6 +915,8 @@
             if (source === 'HAND') {
                 if (card.id === 'gold_bag') {
                     html += `<button class="btn" style="background:#27ae60; font-size:1.05em; width:100%;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">使用する (+3000点)</button>`;
+                } else if (card.id === 'disaster') { // ★ 追加[cite: 28]
+                    html += `<button class="btn" style="background:#c0392b; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">大災害を発動する</button>`;
                 } else {
                     const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
                     html += `<div style="background:#1a252f; padding:10px; border-radius:6px; margin-bottom:10px; text-align:left;">`;
