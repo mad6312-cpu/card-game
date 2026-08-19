@@ -474,9 +474,12 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
             // 最新の攻撃者のスコアを取得
             const currentAttackerScore = gameState.players[attackerId].score;
 
-            // 1. 最新の自分より得点が低いプレイヤーを抽出（未攻撃のプレイヤーのみ）
-            const lowerPlayers = currentPlayers.filter(p => p.score < currentAttackerScore && !attackedPlayerIds.has(p.id));
-
+            // 1. 最新の自分より得点が低いプレイヤーを抽出（未攻撃かつ選択不可でないプレイヤーのみ）
+            const lowerPlayers = currentPlayers.filter(p =>
+                p.score < currentAttackerScore &&
+                !attackedPlayerIds.has(p.id) &&
+                (!p.immunityCount || p.immunityCount <= 0) // ★ 選択不可状態のプレイヤーを除外
+            );
             if (lowerPlayers.length === 0) {
                 if (attackedPlayerIds.size === 0) {
                     broadcastGameState(`P${attacker.number} が「木の剣」を使用しましたが、自分より下の順位のプレイヤーがいませんでした。`);

@@ -939,7 +939,7 @@
                             }
                         });
 
-                        let lowerPlayers = allPlayers.filter(p => p.score < myScore);
+                        let lowerPlayers = allPlayers.filter(p => p.score < myScore && (!p.immunityCount || p.immunityCount <= 0)); // ★ 選択不可状態のプレイヤーを除外
                         if (lowerPlayers.length > 0) {
                             if (latestGameState.round === 1) {
                                 lowerPlayers = lowerPlayers.filter(p => {
