@@ -806,6 +806,55 @@
             document.getElementById('drop-action-modal').style.display = 'none';
         }
 
+        // 範囲攻撃カード等の下位プレイヤーに対する各対象ごとの命中率算出関数
+        function calculateLowerTargetsHitRates(lowerPlayers) {
+            if (!lowerPlayers || lowerPlayers.length === 0) return [];
+
+            const sorted = [...lowerPlayers].sort((a, b) => b.score - a.score);
+            const groups = [];
+            sorted.forEach(p => {
+                let lastGroup = groups[groups.length - 1];
+                if (lastGroup && lastGroup.score === p.score) {
+                    lastGroup.players.push(p);
+                } else {
+                    groups.push({ score: p.score, players: [p] });
+                }
+            });
+
+            const result = [];
+            let pMiss = 1.0;
+
+            groups.forEach(group => {
+                const m = group.players.length;
+                const groupHitProb = pMiss * (1 - Math.pow(0.5, m));
+                const individualHitProb = groupHitProb / m;
+
+                group.players.forEach(p => {
+                    const ratePercent = Math.round(individualHitProb * 1000) / 10;
+                    result.push({ player: p, hitRate: ratePercent });
+                });
+
+                pMiss = pMiss * Math.pow(0.5, m);
+            });
+
+            return result;
+        }
+
+        // ドロップダウン選択時の命中率表示更新関数
+        function updateHitRateDisplay(selectEl) {
+            if (!selectEl) return;
+            const selectedOption = selectEl.options[selectEl.selectedIndex];
+            const displayEl = document.getElementById('hit-rate-info');
+            if (selectedOption && displayEl) {
+                const rateInfo = selectedOption.getAttribute('data-hitrate');
+                if (rateInfo) {
+                    displayEl.innerHTML = `🎯 命中率: <span style="color:#f1c40f; font-weight:bold;">${rateInfo}</span>`;
+                } else {
+                    displayEl.innerText = '';
+                }
+            }
+        }
+
         function openDropCardModal(source, instanceId) {
             if (!latestGameState) return;
 
@@ -815,16 +864,12 @@
             const myPlayer = latestGameState.players[myId];
             if (!myPlayer) return;
 
-            // 防御カードセット時のメッセージ用フラグ
             let isBlockedByDefense = false;
 
-            // 手札から使用しようとして防御カードがセットされている場合の判定
             if (source === 'HAND') {
                 const targetHandCard = myPlayer.hand.find(c => String(c.instanceId) === String(instanceId));
-                // 防御カードが存在し、かつ例外許可（allowWithDefense）されていないカードの場合
                 if (myPlayer.defenseCard && targetHandCard && !targetHandCard.allowWithDefense) {
                     isBlockedByDefense = true;
-                    // 防御カード側の操作モーダル表示へ切り替え
                     source = 'DEFENSE';
                 }
             }
@@ -852,7 +897,6 @@
 
             if (!card) return;
 
-            // ★ モーダル上部のタイトル設定（手札からのリダイレクト時は警告メッセージを最上部に表示）
             if (isBlockedByDefense) {
                 title.innerHTML = `<span style="color:#e74c3c; font-size:0.9em; display:block; margin-bottom:4px;">防御カードがセットされています</span>【防御カード操作】${card.name}`;
             } else {
@@ -860,9 +904,9 @@
             }
 
             preview.innerHTML = `
-                ${card.image ? `<img src="${card.image}" style="width:110px; height:160px; object-fit:contain; border-radius:6px; margin:0 auto; display:block;">` : ''}
-                <p style="font-size:0.85em; color:#cbd5e1; margin:8px 0 0 0;">${card.desc}</p>
-            `;
+        ${card.image ? `<img src="${card.image}" style="width:110px; height:160px; object-fit:contain; border-radius:6px; margin:0 auto; display:block;">` : ''}
+        <p style="font-size:0.85em; color:#cbd5e1; margin:8px 0 0 0;">${card.desc}</p>
+    `;
 
             const hasDefense = !!myPlayer.defenseCard;
             let html = '';
@@ -871,35 +915,30 @@
                 if (card.id === 'gold_bag') {
                     html += `<button class="btn" style="background:#27ae60; font-size:1.05em; width:100%;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">使用する (+3000点)</button>`;
                 } else {
-                    // 1. 攻撃機能
                     const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
                     html += `<div style="background:#1a252f; padding:10px; border-radius:6px; margin-bottom:10px; text-align:left;">`;
                     html += `<b style="color:#e74c3c;">⚔ 攻撃する:</b><br>`;
-                    html += `対象: <select id="drop-target-${card.instanceId}">`;
+                    html += `対象: <select id="drop-target-${card.instanceId}" onchange="updateHitRateDisplay(this)">`;
 
                     if (card.id === 'wood_sword') {
-                        // 木の剣専用の対象選択肢
                         const allPlayers = Object.values(latestGameState.players);
                         const myScore = myPlayer.score;
 
-                        // 自分との得点差が0点以上+5000点以下のプレイヤー（同点含む）を抽出
                         allPlayers.forEach((p) => {
-                            if (p.id !== myId) { // 自分自身は除外
-                                const scoreDiff = p.score - myScore; // 相手の得点 - 自分の得点
+                            if (p.id !== myId) {
+                                const scoreDiff = p.score - myScore;
                                 const isImmune = p.immunityCount && p.immunityCount > 0;
 
-                                // 得点差が 0点以上 5000点以内 か判定
                                 if (scoreDiff >= 0 && scoreDiff <= 5000) {
                                     if (isImmune) {
-                                        html += `<option value="${p.id}" disabled>${p.name} (選択不可残:${p.immunityCount})</option>`;
+                                        html += `<option value="${p.id}" disabled data-hitrate="50%">${p.name} (選択不可残:${p.immunityCount}) [命中率: 50%]</option>`;
                                     } else {
-                                        html += `<option value="${p.id}">${p.name}</option>`;
+                                        html += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
                                     }
                                 }
                             }
                         });
 
-                        // 自分より得点が厳密に低い（下位の）プレイヤーが存在する場合
                         let lowerPlayers = allPlayers.filter(p => p.score < myScore);
                         if (lowerPlayers.length > 0) {
                             if (latestGameState.round === 1) {
@@ -910,28 +949,28 @@
                             }
 
                             if (lowerPlayers.length > 0) {
-                                const lowerNames = lowerPlayers.map(p => p.name).join(',');
-                                html += `<option value="ALL_LOWER">${lowerNames}</option>`;
+                                const hitRates = calculateLowerTargetsHitRates(lowerPlayers);
+                                const rateDetailStr = hitRates.map(item => `${item.player.name}: ${item.hitRate}%`).join(', ');
+                                html += `<option value="ALL_LOWER" data-hitrate="${rateDetailStr}">下位全員 (${rateDetailStr})</option>`;
                             }
                         }
                     } else {
-                        // 通常の攻撃対象選択
                         Object.values(latestGameState.players).forEach(p => {
                             if (p.id !== myId) {
                                 const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
                                 if (latestGameState.round === 1 && pOrderIdx > myOrderIdx) {
                                 } else if (p.immunityCount && p.immunityCount > 0) {
-                                    html += `<option value="${p.id}" disabled>${p.name} (選択不可残:${p.immunityCount})</option>`;
+                                    html += `<option value="${p.id}" disabled data-hitrate="50%">${p.name} (選択不可残:${p.immunityCount}) [命中率: 50%]</option>`;
                                 } else {
-                                    html += `<option value="${p.id}">${p.name}</option>`;
+                                    html += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
                                 }
                             }
                         });
                     }
 
                     html += `</select><br>`;
+                    html += `<div id="hit-rate-info" style="font-size:0.85em; margin-top:4px; min-height:1.2em;"></div>`;
 
-                    // 木の盾セットの場合は攻撃回数選択を追加
                     if (card.id === 'wood_shield_set') {
                         html += `回数: <select id="drop-attack-count-${card.instanceId}">`;
                         for (let i = 1; i <= usesLeft; i++) {
@@ -943,7 +982,6 @@
                     html += `<button class="btn" style="background:#e74c3c; margin-top:5px; width:100%;" onclick="executeDropPlayCard('${card.instanceId}', 'ATTACK')">攻撃実行</button>`;
                     html += `</div>`;
 
-                    // 2. 防御にセット
                     html += `<div style="margin-bottom:8px;">`;
                     if (hasDefense) {
                         html += `<button class="btn" disabled style="background:#7f8c8d; width:100%;">防御にセット不可 (すでにセット中)</button>`;
@@ -953,23 +991,23 @@
                     html += `</div>`;
                 }
             } else if (source === 'DEFENSE') {
-                // 防御カードからの攻撃
                 const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
                 html += `<div style="background:#1a252f; padding:10px; border-radius:6px; margin-bottom:10px; text-align:left;">`;
                 html += `<b style="color:#e74c3c;">⚔ 防御を外して攻撃:</b><br>`;
-                html += `対象: <select id="drop-def-attack-target">`;
+                html += `対象: <select id="drop-def-attack-target" onchange="updateHitRateDisplay(this)">`;
                 Object.values(latestGameState.players).forEach(p => {
                     if (p.id !== myId) {
                         const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
                         if (latestGameState.round === 1 && pOrderIdx > myOrderIdx) {
                         } else if (p.immunityCount && p.immunityCount > 0) {
-                            html += `<option value="${p.id}" disabled>${p.name} (選択不可残:${p.immunityCount})</option>`;
+                            html += `<option value="${p.id}" disabled data-hitrate="50%">${p.name} (選択不可残:${p.immunityCount}) [命中率: 50%]</option>`;
                         } else {
-                            html += `<option value="${p.id}">${p.name}</option>`;
+                            html += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
                         }
                     }
                 });
                 html += `</select><br>`;
+                html += `<div id="hit-rate-info" style="font-size:0.85em; margin-top:4px; min-height:1.2em;"></div>`;
 
                 if (card.id === 'wood_shield_set') {
                     html += `回数: <select id="drop-def-attack-count">`;
@@ -987,6 +1025,12 @@
 
             actions.innerHTML = html;
             modal.style.display = 'block';
+
+            // モーダル表示時に初期選択対象の命中率を表示
+            const targetSelect = document.getElementById(`drop-target-${card.instanceId}`) || document.getElementById('drop-def-attack-target');
+            if (targetSelect) {
+                updateHitRateDisplay(targetSelect);
+            }
         }
 
         function executeDropPlayCard(instanceId, actionTarget) {
