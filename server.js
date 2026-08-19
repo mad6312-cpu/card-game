@@ -172,8 +172,27 @@ io.on('connection', (socket) => {
 
         gameState.turnPhase = 'MAIN';
 
-        // broadcastGameState を使用することで正しく currentTurnPlayerId が全員に同期されます
-        broadcastGameState(`P${player.number} が「${randomCard.name}」を獲得し、メインフェーズに入りました。`);
+        const bonusLog = acceptBonus ? ' (+3000点獲得)' : '';
+
+        // 本人向け：獲得した具体カード名を含めて送信
+        socket.emit('syncGameState', {
+            players: gameState.players,
+            turnOrder: gameState.turnOrder,
+            currentTurnPlayerId: gameState.currentTurnPlayerId,
+            round: gameState.round,
+            turnPhase: gameState.turnPhase,
+            log: `「${randomCard.name}」を獲得しました。${bonusLog}`
+        });
+
+        // 他プレイヤー向け：カード名を伏せて送信
+        socket.broadcast.emit('syncGameState', {
+            players: gameState.players,
+            turnOrder: gameState.turnOrder,
+            currentTurnPlayerId: gameState.currentTurnPlayerId,
+            round: gameState.round,
+            turnPhase: gameState.turnPhase,
+            log: `P${player.number} がカードを1枚獲得しました。${bonusLog}`
+        });
     });
 
     socket.on('playCard', ({ instanceId, actionTarget, targetPlayerId, attackCount }) => {
@@ -399,25 +418,6 @@ io.on('connection', (socket) => {
     });
 });
 
-// 木の剣の命中判定（順位差判定）
-function checkSwordHitSuccess(attackerId, targetId) {
-    const playersList = Object.values(gameState.players);
-    const attacker = gameState.players[attackerId];
-    const target = gameState.players[targetId];
-
-    // 自分より得点が高いプレイヤーの数 + 1 を順位とする（同点は同順位）
-    const attackerRank = playersList.filter(p => p.score > attacker.score).length + 1;
-    const targetRank = playersList.filter(p => p.score > target.score).length + 1;
-    const diff = Math.abs(attackerRank - targetRank);
-
-    let successRate = 0.5; // ±1
-    if (diff === 2) successRate = 0.2; // ±2: 1/5
-    else if (diff >= 3) successRate = 0.1; // ±3: 1/10
-
-    const isHit = Math.random() < successRate;
-    return { isHit, diff, successRate };
-}
-
 // 通常カード（木の剣 / 木の盾）の攻撃実行
 function executeStandardAttack(attackerId, targetId, cardId) {
     const attacker = gameState.players[attackerId];
@@ -429,9 +429,8 @@ function executeStandardAttack(attackerId, targetId, cardId) {
     let isHit = false;
     let rateText = '';
     if (cardId === 'wood_sword') {
-        const res = checkSwordHitSuccess(attackerId, targetId);
-        isHit = res.isHit;
-        rateText = `(順位差:${res.diff} / 成功率:${Math.round(res.successRate * 100)}%) `;
+        isHit = Math.random() < 0.5;
+        rateText = `(成功率:50%) `;
     } else {
         isHit = Math.random() < 0.5;
         rateText = `(成功率:50%) `;
@@ -463,41 +462,54 @@ function executeStandardAttack(attackerId, targetId, cardId) {
 
 function executeWoodSwordAttack(attackerId, targetTypeOrId) {
     const attacker = gameState.players[attackerId];
-    const playersList = Object.values(gameState.players);
-    const attackerRank = playersList.filter(p => p.score > attacker.score).length + 1;
 
-    // --- CASE 1: 自分より順位が下のプレイヤー全員への攻撃 ---
+    // --- CASE 1: 自分より順位が下のプレイヤー全員への範囲攻撃 ---
     if (targetTypeOrId === 'ALL_LOWER') {
-        // 自分より得点が厳密に低いプレイヤーを抽出
-        const lowerPlayers = playersList.filter(p => p.score < attacker.score);
-        if (lowerPlayers.length === 0) {
-            broadcastGameState(`P${attacker.number} が「木の剣」を使用しましたが、自分より下の順位のプレイヤーがいませんでした。`);
-            return;
-        }
-
-        let currentIdx = 0;
+        // すでに攻撃処理を行ったプレイヤーIDを記録するセット
+        const attackedPlayerIds = new Set();
 
         function processNextLowerTarget() {
-            if (currentIdx >= lowerPlayers.length) {
-                // 全員命中・防御判定をスルーした場合もカード破棄（終了）
+            // 最新の全プレイヤー情報を取得
+            const currentPlayers = Object.values(gameState.players);
+            // 最新の攻撃者のスコアを取得
+            const currentAttackerScore = gameState.players[attackerId].score;
+
+            // 1. 最新の自分より得点が低いプレイヤーを抽出（未攻撃のプレイヤーのみ）
+            const lowerPlayers = currentPlayers.filter(p => p.score < currentAttackerScore && !attackedPlayerIds.has(p.id));
+
+            if (lowerPlayers.length === 0) {
+                if (attackedPlayerIds.size === 0) {
+                    broadcastGameState(`P${attacker.number} が「木の剣」を使用しましたが、自分より下の順位のプレイヤーがいませんでした。`);
+                }
                 return;
             }
 
-            const target = lowerPlayers[currentIdx];
+            // 2. 得点が高い順（降順）にソート
+            lowerPlayers.sort((a, b) => b.score - a.score);
+
+            // 3. 最高得点グループを特定（同点プレイヤーのグループ化）
+            const topScore = lowerPlayers[0].score;
+            const topGroup = lowerPlayers.filter(p => p.score === topScore);
+
+            // 4. 同点グループの中からランダムに1人を選択
+            const target = topGroup[Math.floor(Math.random() * topGroup.length)];
+
+            // 攻撃対象として記録
+            attackedPlayerIds.add(target.id);
+
             let logPrefix = `P${attacker.number} の「木の剣」攻撃 (対象: P${target.number})！ `;
 
-            // 1. 命中判定（1/2）
+            // 命中判定（1/2）
             const isHit = Math.random() < 0.5;
 
+            // 攻撃失敗（ミス）の場合：連続攻撃を継続して次の順位の対象へ
             if (!isHit) {
-                // ミスの場合、攻撃は中断されず次のプレイヤーへ
                 broadcastGameState(logPrefix + `攻撃は外れた！（ミス）`);
-                currentIdx++;
                 setTimeout(processNextLowerTarget, 500);
                 return;
             }
 
-            // 2. 命中した場合、防御カードチェック
+            // 防御カードチェック（防御カードで無効化された場合は攻撃中断）
             if (target.defenseCard) {
                 target.defenseCard.usesLeft -= 1;
                 let msg = logPrefix + `命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
@@ -506,33 +518,32 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
                     msg += '（相手の防御カード破棄）';
                 }
                 broadcastGameState(msg);
-                return; // 防御発生のため攻撃中断
+                return; // ★ 防御カードでの無効化時も範囲攻撃を中断
             }
 
-            // 3. 防御なし：ダメージ適用および選択不可状態付与
+            // ダメージ適用（得点変動）＆ 攻撃中断
             applyScoreChange(target, -3000);
-            target.immunityCount = 2; // 自分以外の対戦相手3人×2ターン経過で解除
-            broadcastGameState(logPrefix + `命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました)`);
-            return; // ダメージ発生のため攻撃中断
+            target.immunityCount = 2;
+            broadcastGameState(logPrefix + `命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました。)`);
+            return; // ★ 命中ヒット時も範囲攻撃を中断
         }
 
         processNextLowerTarget();
         return;
     }
 
-    // --- CASE 2: 自分より順位が上のプレイヤー単体への攻撃 ---
+    // --- CASE 2: 自分との得点差が0点以上+5000点以下のプレイヤー単体への攻撃 ---
     const target = gameState.players[targetTypeOrId];
     if (!target) return;
 
-    const targetRank = playersList.filter(p => p.score > target.score).length + 1;
-    // バリデーションチェック
-    if (attackerRank <= targetRank) {
-        socket.emit('errorMessage', '自分より下の順位のプレイヤーは個別に対象に指定できません。');
-        return;
-    }
+    const scoreDiff = target.score - attacker.score;
 
-    if ((target.score - attacker.score) > 5000) {
-        socket.emit('errorMessage', '得点差が5000点を超えるプレイヤーは攻撃対象に選択できません。');
+    // バリデーションチェック: 得点差が0未満（自分より得点が低い）または5000点を超える場合は攻撃不可
+    if (scoreDiff < 0 || scoreDiff > 5000) {
+        const socket = io.sockets.sockets.get(attackerId);
+        if (socket) {
+            socket.emit('errorMessage', '自分との得点差が0点以上+5000点以下のプレイヤーのみ攻撃対象に指定できます。');
+        }
         return;
     }
 

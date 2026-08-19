@@ -41,6 +41,7 @@
             cursor: not-allowed;
         }
 
+        /* 他のモーダル(1000)より前面で常に押せるように z-index を 1050 に設定 */
         .settings-btn {
             position: absolute;
             top: 0;
@@ -48,6 +49,7 @@
             background: #7f8c8d;
             font-size: 14px;
             padding: 8px 12px;
+            z-index: 1050;
         }
 
         .modal {
@@ -63,6 +65,11 @@
             justify-content: center;
             box-sizing: border-box;
             padding: 20px;
+        }
+
+        /* デバッグ設定モーダルは最前面(1100)に表示 */
+        #settings-modal {
+            z-index: 1100;
         }
 
         .modal[style*="display: block"] {
@@ -441,7 +448,13 @@
         <div id="settings-modal" class="modal">
             <div class="modal-content">
                 <h3 style="margin-top:0;">⚙ カード排出スイッチ (デバッグ)</h3>
-                <p style="font-size: 0.85em; color: #bdc3c7;">OFFにするとターン開始時のカード獲得で引けなくなります。</p>
+                <p style="font-size: 0.85em; color: #bdc3c7; margin-bottom: 10px;">OFFにするとターン開始時のカード獲得で引けなくなります。</p>
+                <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+                    <button class="btn" style="background:#27ae60; padding:6px 12px; font-size:12px; margin:0;"
+                        onclick="toggleAllCards(true)">全カード ON</button>
+                    <button class="btn" style="background:#c0392b; padding:6px 12px; font-size:12px; margin:0;"
+                        onclick="toggleAllCards(false)">全カード OFF</button>
+                </div>
                 <div id="card-switches"></div>
                 <div style="text-align: right; margin-top: 15px;">
                     <button class="btn" style="background:#7f8c8d;" onclick="closeSettingsModal()">閉じる</button>
@@ -506,6 +519,12 @@
 
         function toggleCard(cardId, enabled) {
             socket.emit('toggleCardSetting', { cardId, enabled });
+        }
+
+        function toggleAllCards(enabled) {
+            Object.keys(CARD_NAMES).forEach(cardId => {
+                socket.emit('toggleCardSetting', { cardId, enabled });
+            });
         }
 
         function openSettingsModal() { document.getElementById('settings-modal').style.display = 'block'; }
@@ -862,25 +881,25 @@
                         // 木の剣専用の対象選択肢
                         const allPlayers = Object.values(latestGameState.players);
                         const myScore = myPlayer.score;
-                        const myRank = allPlayers.filter(p => p.score > myScore).length + 1;
 
-                        // 自分より得点が高い（上位の）プレイヤーを抽出
+                        // 自分との得点差が0点以上+5000点以下のプレイヤー（同点含む）を抽出
                         allPlayers.forEach((p) => {
-                            if (p.score > myScore) {
-                                const rank = allPlayers.filter(sp => sp.score > p.score).length + 1;
-                                const diff = p.score - myScore;
+                            if (p.id !== myId) { // 自分自身は除外
+                                const scoreDiff = p.score - myScore; // 相手の得点 - 自分の得点
                                 const isImmune = p.immunityCount && p.immunityCount > 0;
-                                const isOutOfRange = diff > 5000;
 
-                                if (isImmune) {
-                                    html += `<option value="${p.id}" disabled>${p.name} (選択不可残:${p.immunityCount})</option>`;
-                                } else if (!isOutOfRange) {
-                                    html += `<option value="${p.id}">${p.name}</option>`;
+                                // 得点差が 0点以上 5000点以内 か判定
+                                if (scoreDiff >= 0 && scoreDiff <= 5000) {
+                                    if (isImmune) {
+                                        html += `<option value="${p.id}" disabled>${p.name} (選択不可残:${p.immunityCount})</option>`;
+                                    } else {
+                                        html += `<option value="${p.id}">${p.name}</option>`;
+                                    }
                                 }
                             }
                         });
 
-                        // 自分より得点が低い（下位の）プレイヤーが存在する場合
+                        // 自分より得点が厳密に低い（下位の）プレイヤーが存在する場合
                         let lowerPlayers = allPlayers.filter(p => p.score < myScore);
                         if (lowerPlayers.length > 0) {
                             if (latestGameState.round === 1) {
