@@ -117,6 +117,27 @@ io.on('connection', (socket) => {
         socket.emit('full');
     }
 
+    socket.on('debugUpdateScore', ({ targetPlayerId, amount, setDirect }) => {
+        const target = gameState.players[targetPlayerId];
+        if (!target) return;
+
+        resetScoreChanges();
+        target.prevScore = target.score;
+
+        if (setDirect) {
+            // 直接入力された値に設定
+            const newScore = Number(amount);
+            target.scoreChange = newScore - target.score;
+            target.score = newScore;
+        } else {
+            // +1000, -3000 等の加減算
+            target.scoreChange = Number(amount);
+            target.score += Number(amount);
+        }
+
+        broadcastGameState(`[デバッグ] P${target.number} の得点が ${target.score} 点に変更されました。`);
+    });
+
     socket.on('toggleCardSetting', ({ cardId, enabled }) => {
         if (cardSettings.hasOwnProperty(cardId)) {
             cardSettings[cardId] = enabled;

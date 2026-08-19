@@ -287,10 +287,76 @@
             visibility: visible;
             opacity: 1;
         }
+
+        /* 画面左上のデバッグスコアパネル */
+        .debug-score-panel {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(15, 23, 42, 0.95);
+            border: 2px solid #f1c40f;
+            border-radius: 8px;
+            padding: 10px;
+            z-index: 2000;
+            font-size: 12px;
+            max-width: 320px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        .debug-score-panel summary {
+            font-weight: bold;
+            color: #f1c40f;
+            cursor: pointer;
+            user-select: none;
+            padding: 2px 5px;
+        }
+
+        .debug-p-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 4px;
+            margin-top: 6px;
+            padding-top: 6px;
+            border-top: 1px solid #334155;
+        }
+
+        .debug-btn-group button {
+            padding: 2px 5px;
+            font-size: 10px;
+            margin: 1px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            background: #34495e;
+            color: #fff;
+        }
+
+        .debug-btn-group button:hover {
+            background: #e67e22;
+        }
+
+        .debug-score-input {
+            width: 55px;
+            background: #1e293b;
+            color: #fff;
+            border: 1px solid #475569;
+            border-radius: 3px;
+            padding: 2px 4px;
+            font-size: 11px;
+            text-align: right;
+        }
     </style>
 </head>
 
 <body>
+    <!-- 画面左上 デバッグ用スコア操作パネル -->
+    <details class="debug-score-panel" open>
+        <summary>🛠 スコア調整 (デバッグ)</summary>
+        <div id="debug-score-list" style="margin-top: 6px;">
+            <div style="color: #94a3b8; font-size: 11px;">プレイヤー接続待機中...</div>
+        </div>
+    </details>
     <div class="container">
         <button class="btn settings-btn" onclick="openSettingsModal()">⚙ デバッグ設定</button>
 
@@ -452,7 +518,9 @@
         socket.on('draftConflict', (data) => {
             const draftArea = document.getElementById('draft-area');
             updatePlayersUI(data.players, null);
-            if (data.unresolvedIds.includes(myId)) {
+
+            // ★ 追加: ドラフト競合時もプレイヤー情報が渡ってくるため更新
+            renderDebugScorePanel(data.players); if (data.unresolvedIds.includes(myId)) {
                 document.getElementById('status').innerText = '選択が被りました！再選択してください。';
                 if (draftArea) renderDraftUI(data.availableScores, '残りの選択肢から選んでください：');
             } else {
@@ -505,7 +573,53 @@
 
             updatePlayersUI(data.players, data.currentTurnPlayerId);
             updateTurnControls(data);
+
+            // ★ 追加: スコア調整パネルの表示を更新する
+            renderDebugScorePanel(data.players);
         });
+
+        // プレイヤーのスコア操作パネルを描画
+        function renderDebugScorePanel(players) {
+            const container = document.getElementById('debug-score-list');
+            if (!container || !players) return;
+
+            const playerList = Object.values(players).sort((a, b) => a.number - b.number);
+            if (playerList.length === 0) {
+                container.innerHTML = '<div style="color: #94a3b8; font-size: 11px;">プレイヤー接続待機中...</div>';
+                return;
+            }
+
+            container.innerHTML = '';
+            playerList.forEach(p => {
+                const row = document.createElement('div');
+                row.className = 'debug-p-row';
+                row.innerHTML = `
+                    <span style="font-weight:bold; min-width:30px;">P${p.number}:</span>
+                    <input type="number" class="debug-score-input" id="debug-input-${p.id}" value="${p.score}" step="500">
+                    <button style="background:#27ae60; padding:2px 6px; font-size:10px; border:none; border-radius:3px; color:white; cursor:pointer;" onclick="setDebugScoreDirect('${p.id}')">Set</button>
+                    <div class="debug-btn-group">
+                        <button onclick="changeDebugScore('${p.id}', 1000)">+1k</button>
+                        <button onclick="changeDebugScore('${p.id}', -1000)">-1k</button>
+                        <button onclick="changeDebugScore('${p.id}', 5000)">+5k</button>
+                        <button onclick="changeDebugScore('${p.id}', -5000)">-5k</button>
+                    </div>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        // 得点を増減させる処理
+        function changeDebugScore(targetPlayerId, amount) {
+            socket.emit('debugUpdateScore', { targetPlayerId, amount, setDirect: false });
+        }
+
+        // 得点を直接入力値に変更する処理
+        function setDebugScoreDirect(targetPlayerId) {
+            const input = document.getElementById(`debug-input-${targetPlayerId}`);
+            if (input && input.value !== '') {
+                socket.emit('debugUpdateScore', { targetPlayerId, amount: Number(input.value), setDirect: true });
+            }
+        }
 
         function updatePlayersUI(players, currentTurnPlayerId) {
             const sorted = Object.values(players).sort((a, b) => b.score - a.score);
