@@ -41,7 +41,6 @@
             cursor: not-allowed;
         }
 
-        /* 他のモーダル(1000)より前面で常に押せるように z-index を 1050 に設定 */
         .settings-btn {
             position: absolute;
             top: 0;
@@ -67,7 +66,6 @@
             padding: 20px;
         }
 
-        /* デバッグ設定モーダルは最前面(1100)に表示 */
         #settings-modal {
             z-index: 1100;
         }
@@ -161,7 +159,6 @@
             border-width: 3px;
         }
 
-        /* 防御カードのミニアイコン（ホバーモーションを追加） */
         .mini-card-icon {
             width: 22px;
             height: 32px;
@@ -171,13 +168,11 @@
             transition: transform 0.2s ease, border-color 0.2s ease;
         }
 
-        /* ホバー時のモーション（Y軸移動と枠線色変更） */
         .mini-card-icon:hover {
             transform: translateY(-3px);
             border-color: #f1c40f;
         }
 
-        /* 防御カード用ラッパーとツールチップ */
         .def-card-wrapper {
             position: relative;
             display: inline-block;
@@ -295,7 +290,6 @@
             opacity: 1;
         }
 
-        /* オーバーレイ全体 */
         .cutin-overlay {
             position: fixed;
             top: 0;
@@ -308,14 +302,12 @@
             align-items: center;
             z-index: 9999;
             pointer-events: none;
-            /* ゲーム操作を邪魔しない */
         }
 
         .cutin-overlay.hidden {
             display: none;
         }
 
-        /* カットインアニメーション（出現して拡大） */
         .cutin-content {
             text-align: center;
             animation: cutInAnimation 2.5s ease-in-out forwards;
@@ -361,7 +353,6 @@
             }
         }
 
-        /* 画面左上のデバッグスコアパネル */
         .debug-score-panel {
             position: fixed;
             top: 10px;
@@ -423,7 +414,6 @@
 </head>
 
 <body>
-    <!-- 画面左上 デバッグ用スコア操作パネル -->
     <details class="debug-score-panel" open>
         <summary>🛠 スコア調整 (デバッグ)</summary>
         <div id="debug-score-list" style="margin-top: 6px;">
@@ -436,10 +426,8 @@
         <h2>対戦カードゲーム</h2>
         <div id="status">接続待機中...</div>
 
-        <!-- ドラフトエリア -->
         <div id="draft-area" class="card" style="display: none;"></div>
 
-        <!-- ゲームメイン画面 -->
         <div id="game-main" style="display: none;">
             <div class="mj-table">
                 <div class="seat-top" id="seat-top"></div>
@@ -467,7 +455,6 @@
             </div>
         </div>
 
-        <!-- 手札オーバー破棄選択モーダル -->
         <div id="discard-modal" class="modal">
             <div class="modal-content" style="text-align:center; max-width:600px;">
                 <h3 style="margin-top:0; color:#e74c3c;">★ 手札オーバー！</h3>
@@ -479,7 +466,6 @@
             </div>
         </div>
 
-        <!-- ターン開始ボーナス選択モーダル -->
         <div id="bonus-choice-modal" class="modal">
             <div class="modal-content" style="text-align:center; max-width:400px;">
                 <h3 style="margin-top:0; color:#f1c40f;">★ あなたのターンです</h3>
@@ -498,7 +484,6 @@
             </div>
         </div>
 
-        <!-- カード操作モーダル -->
         <div id="drop-action-modal" class="modal">
             <div class="modal-content" style="text-align:center; max-width:420px;">
                 <h3 id="drop-modal-title" style="margin-top:0; color:#f1c40f;">カード操作</h3>
@@ -510,7 +495,6 @@
             </div>
         </div>
 
-        <!-- カードスイッチ設定モーダル -->
         <div id="settings-modal" class="modal">
             <div class="modal-content">
                 <h3 style="margin-top:0;">⚙ カード排出スイッチ (デバッグ)</h3>
@@ -549,7 +533,8 @@
             wood_sword: '木の剣',
             wood_shield: '木の盾',
             wood_shield_set: '木の盾セット',
-            disaster: '大災害' // 追加
+            disaster: '大災害',
+            invincible_armor: '無敵アーマー' // ★追加
         };
 
         socket.on('connect', () => { myId = socket.id; });
@@ -571,9 +556,7 @@
             renderCardSwitches();
         });
 
-        // サーバーからのカットイン指示を受信
         socket.on('showCutIn', (data) => {
-            // 操作中モーダルが開いていれば閉じる
             closeDropActionModal();
 
             const overlay = document.getElementById('cutin-overlay');
@@ -583,10 +566,8 @@
             img.src = data.imagePath;
             title.textContent = data.title;
 
-            // 表示開始
             overlay.classList.remove('hidden');
 
-            // アニメーション終了（2.5秒後）に自動で隠す
             setTimeout(() => {
                 overlay.classList.add('hidden');
             }, 2500);
@@ -633,8 +614,8 @@
             const draftArea = document.getElementById('draft-area');
             updatePlayersUI(data.players, null);
 
-            // ★ 追加: ドラフト競合時もプレイヤー情報が渡ってくるため更新
-            renderDebugScorePanel(data.players); if (data.unresolvedIds.includes(myId)) {
+            renderDebugScorePanel(data.players);
+            if (data.unresolvedIds.includes(myId)) {
                 document.getElementById('status').innerText = '選択が被りました！再選択してください。';
                 if (draftArea) renderDraftUI(data.availableScores, '残りの選択肢から選んでください：');
             } else {
@@ -688,11 +669,9 @@
             updatePlayersUI(data.players, data.currentTurnPlayerId);
             updateTurnControls(data);
 
-            // ★ 追加: スコア調整パネルの表示を更新する
             renderDebugScorePanel(data.players);
         });
 
-        // プレイヤーのスコア操作パネルを描画
         function renderDebugScorePanel(players) {
             const container = document.getElementById('debug-score-list');
             if (!container || !players) return;
@@ -722,12 +701,10 @@
             });
         }
 
-        // 得点を増減させる処理
         function changeDebugScore(targetPlayerId, amount) {
             socket.emit('debugUpdateScore', { targetPlayerId, amount, setDirect: false });
         }
 
-        // 得点を直接入力値に変更する処理
         function setDebugScoreDirect(targetPlayerId) {
             const input = document.getElementById(`debug-input-${targetPlayerId}`);
             if (input && input.value !== '') {
@@ -764,7 +741,6 @@
 
                 const isMe = (p.id === myId);
                 const isTurn = (p.id === currentTurnPlayerId);
-                // 自分より得点が高いプレイヤーの数 + 1 を順位とする
                 const rank = Object.values(players).filter(sp => sp.score > p.score).length + 1;
                 const box = document.createElement('div');
                 box.className = `player-box ${isTurn ? 'active' : ''}`;
@@ -774,7 +750,6 @@
                     const card = p.defenseCard.card;
                     const clickAttr = isMe ? `onclick="openDropCardModal('DEFENSE', null)"` : '';
 
-                    // 自分・対戦相手問わず、防御カードにマウスオーバーした際にツールチップとホバーモーションを表示
                     defInfo = `
         <span style="color:#2ecc71;">
             <div class="def-card-wrapper">
@@ -824,7 +799,15 @@
                     scoreDisplayHtml = `持ち点: ${p.score.toLocaleString()}点`;
                 }
 
-                let statusBadge = p.immunityCount > 0 ? `<span style="color:#e74c3c; font-weight:bold; margin-left:5px;">[選択不可:${p.immunityCount}]</span>` : '';
+                let statusBadge = '';
+                if (p.immunityCount > 0) {
+                    statusBadge += `<span style="color:#e74c3c; font-weight:bold; margin-left:5px;">[選択不可:${p.immunityCount}]</span>`;
+                }
+
+                // ★修正：無敵状態バッジの表示は自分（isMe）だけに限定する[cite: 13]
+                if (isMe && p.invincibleTurns > 0) {
+                    statusBadge += `<span style="color:#f1c40f; font-weight:bold; margin-left:5px;">[無敵:${p.invincibleTurns}]</span>`;
+                }
 
                 box.innerHTML = `
                     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -901,7 +884,6 @@
             document.getElementById('drop-action-modal').style.display = 'none';
         }
 
-        // 範囲攻撃カード等の下位プレイヤーに対する各対象ごとの命中率算出関数
         function calculateLowerTargetsHitRates(lowerPlayers) {
             if (!lowerPlayers || lowerPlayers.length === 0) return [];
 
@@ -935,7 +917,6 @@
             return result;
         }
 
-        // ドロップダウン選択時の命中率表示更新関数
         function updateHitRateDisplay(selectEl) {
             if (!selectEl) return;
             const selectedOption = selectEl.options[selectEl.selectedIndex];
@@ -1009,8 +990,11 @@
             if (source === 'HAND') {
                 if (card.id === 'gold_bag') {
                     html += `<button class="btn" style="background:#27ae60; font-size:1.05em; width:100%;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">使用する (+3000点)</button>`;
-                } else if (card.id === 'disaster') { // ★ 追加[cite: 28]
+                } else if (card.id === 'disaster') {
                     html += `<button class="btn" style="background:#c0392b; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">大災害を発動する</button>`;
+                } else if (card.id === 'invincible_armor') {
+                    // ★追加：無敵アーマー使用ボタンの描画
+                    html += `<button class="btn" style="background:#f1c40f; color:#000; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">無敵アーマーを使用する</button>`;
                 } else {
                     const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
                     html += `<div style="background:#1a252f; padding:10px; border-radius:6px; margin-bottom:10px; text-align:left;">`;
@@ -1032,7 +1016,7 @@
                             }
                         });
 
-                        let lowerPlayers = allPlayers.filter(p => p.score < myScore && (!p.immunityCount || p.immunityCount <= 0)); // ★ 選択不可状態のプレイヤーを除外
+                        let lowerPlayers = allPlayers.filter(p => p.score < myScore && (!p.immunityCount || p.immunityCount <= 0));
                         if (lowerPlayers.length > 0) {
                             if (latestGameState.round === 1) {
                                 lowerPlayers = lowerPlayers.filter(p => {
@@ -1048,18 +1032,15 @@
                             }
                         }
                     } else {
-                        // 手札から操作する場合の「ATTACK」部分のリスト構築処理
                         Object.values(latestGameState.players).forEach(p => {
                             if (p.id !== myId) {
                                 const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
                                 const isImmune = p.immunityCount && p.immunityCount > 0;
 
                                 if (latestGameState.round === 1 && pOrderIdx > myOrderIdx) {
-                                    // 1巡目は自分より後のプレイヤーを選択不可
                                 } else if (!isImmune) {
                                     if (card.id === 'wood_shield' || card.id === 'wood_shield_set') {
                                         const diff = myPlayer.score - p.score;
-                                        // 得点差が ±10000点以上（命中率0%）の場合は除外
                                         if (Math.abs(diff) < 10000) {
                                             const hitRate = Math.max(0, 1 - Math.abs(diff) / 10000);
                                             const ratePercent = Math.round(hitRate * 100);
@@ -1100,17 +1081,15 @@
                 html += `<div style="background:#1a252f; padding:10px; border-radius:6px; margin-bottom:10px; text-align:left;">`;
                 html += `<b style="color:#e74c3c;">⚔ 防御を外して攻撃:</b><br>`;
                 html += `対象: <select id="drop-def-attack-target" onchange="updateHitRateDisplay(this)">`;
-                // 防御カードを解除して攻撃する場合のリスト構築処理 (source === 'DEFENSE')
+
                 Object.values(latestGameState.players).forEach(p => {
                     if (p.id !== myId) {
                         const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
                         const isImmune = p.immunityCount && p.immunityCount > 0;
                         if (latestGameState.round === 1 && pOrderIdx > myOrderIdx) {
-                            // 1巡目は自分より後のプレイヤーを選択不可
                         } else if (!isImmune) {
                             if (card.id === 'wood_shield' || card.id === 'wood_shield_set') {
                                 const diff = myPlayer.score - p.score;
-                                // 得点差が ±10000点以上（命中率0%）の場合は除外
                                 if (Math.abs(diff) < 10000) {
                                     const hitRate = Math.max(0, 1 - Math.abs(diff) / 10000);
                                     const ratePercent = Math.round(hitRate * 100);
@@ -1142,7 +1121,6 @@
             actions.innerHTML = html;
             modal.style.display = 'block';
 
-            // モーダル表示時に初期選択対象の命中率を表示
             const targetSelect = document.getElementById(`drop-target-${card.instanceId}`) || document.getElementById('drop-def-attack-target');
             if (targetSelect) {
                 updateHitRateDisplay(targetSelect);

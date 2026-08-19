@@ -41,8 +41,16 @@ const CARD_DECK = [
         id: 'disaster',
         name: '大災害',
         category: 'ATTACK',
-        image: '/images/disaster.png', // ※適切な画像パスを指定してください
+        image: '/images/disaster.png',
         desc: '使用者以外全員対象(命中100%)。手札/防御カード全破棄。1位:-6000/2位:-4000/3位:-2000/4位:-1000。ダメージ対象は選択不可(1巡分)付与。'
+    },
+    {
+        id: 'invincible_armor',
+        name: '無敵アーマー',
+        category: 'SPECIAL',
+        image: '/images/invincible_armor.png', // ※適切な画像パスを指定してください
+        desc: '特殊カード: 使用から合計4ターン経過まで「無敵状態」になる。防御カードセット時も使用可。無敵解除時に破棄。',
+        allowWithDefense: true
     }
 ];
 
@@ -51,7 +59,8 @@ let cardSettings = {
     wood_sword: true,
     wood_shield: true,
     wood_shield_set: true,
-    disaster: true
+    disaster: true,
+    invincible_armor: true
 };
 
 function createInitialState() {
@@ -59,8 +68,8 @@ function createInitialState() {
         started: false,
         players: {},
         turnOrder: [],
-        currentTurnPlayerId: null, // currentTurnIndex から ID直接保持へ変更
-        actedPlayerIds: [],        // その巡で既に行動したプレイヤーのID一覧
+        currentTurnPlayerId: null,
+        actedPlayerIds: [],
         round: 1,
         turnPhase: 'WAITING',
         draft: {
@@ -78,7 +87,6 @@ function getRandomAvailableCard(player) {
     let availableCards = CARD_DECK.filter(c => cardSettings[c.id] !== false);
 
     if (player) {
-        // 木の盾セットを手札または防御カードとして所持しているか確認
         const hasShieldSetInHand = player.hand && player.hand.some(c => c.id === 'wood_shield_set');
         const hasShieldSetInDefense = player.defenseCard && player.defenseCard.card && player.defenseCard.card.id === 'wood_shield_set';
 
@@ -111,7 +119,8 @@ io.on('connection', (socket) => {
             hand: [],
             defenseCard: null,
             draftResolved: false,
-            immunityCount: 0
+            immunityCount: 0,
+            invincibleTurns: 0 // ★追加：無敵状態の残りターン数
         };
 
         socket.emit('init', { playerNumber: pNum, id: socket.id });
@@ -133,12 +142,10 @@ io.on('connection', (socket) => {
         target.prevScore = target.score;
 
         if (setDirect) {
-            // 直接入力された値に設定
             const newScore = Number(amount);
             target.scoreChange = newScore - target.score;
             target.score = newScore;
         } else {
-            // +1000, -3000 等の加減算
             target.scoreChange = Number(amount);
             target.score += Number(amount);
         }
@@ -168,9 +175,8 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 1. chooseBonus ハンドラ冒頭に resetScoreChanges() を追加
     socket.on('chooseBonus', (acceptBonus) => {
-        resetScoreChanges(); // ★追加：ターン開始ボーナス時の変化をリセットしてクリアにする
+        resetScoreChanges();
         const currentTurnId = gameState.currentTurnPlayerId;
         if (socket.id !== currentTurnId || gameState.turnPhase !== 'BONUS_CHOICE') return;
 
@@ -183,7 +189,6 @@ io.on('connection', (socket) => {
 
         const bonusLog = acceptBonus ? ' (+3000点獲得)' : '';
 
-        // 本人向け：獲得した具体カード名を含めて送信
         socket.emit('syncGameState', {
             players: gameState.players,
             turnOrder: gameState.turnOrder,
@@ -193,7 +198,6 @@ io.on('connection', (socket) => {
             log: `「${randomCard.name}」を獲得しました。${bonusLog}`
         });
 
-        // 他プレイヤー向け：カード名を伏せて送信
         socket.broadcast.emit('syncGameState', {
             players: gameState.players,
             turnOrder: gameState.turnOrder,
@@ -207,7 +211,8 @@ io.on('connection', (socket) => {
     socket.on('playCard', ({ instanceId, actionTarget, targetPlayerId, attackCount }) => {
         resetScoreChanges();
 
-        const currentTurnId = gameState.currentTurnPlayerId; if (socket.id !== currentTurnId || gameState.turnPhase !== 'MAIN') {
+        const currentTurnId = gameState.currentTurnPlayerId;
+        if (socket.id !== currentTurnId || gameState.turnPhase !== 'MAIN') {
             socket.emit('errorMessage', 'あなたのターンのメインフェーズではありません。');
             return;
         }
@@ -221,29 +226,50 @@ io.on('connection', (socket) => {
 
         const card = player.hand[cardIndex];
 
-        // ★ 追加: 防御カードセット時の手札使用制限チェック
-        // card.allowWithDefense が true のカードは例外として使用可能
         if (player.defenseCard && !card.allowWithDefense) {
             socket.emit('errorMessage', '防御カードがセットされています。');
             return;
         }
 
-        // playCard 内のカード種別分岐（金袋の次など）に追加
         if (card.id === 'gold_bag') {
             applyScoreChange(player, 3000);
             player.hand.splice(cardIndex, 1);
             broadcastGameState(`P${player.number} が「金袋」を使用し、+3000点獲得しました！`);
-        } else if (card.id === 'disaster') { // ★ 追加[cite: 28]
+        } else if (card.id === 'disaster') {
             player.hand.splice(cardIndex, 1);
             executeDisasterAttack(socket.id);
-            // 2. 攻撃アクション
+        } else if (card.id === 'invincible_armor') {
+            if (player.invincibleTurns > 0) {
+                socket.emit('errorMessage', 'すでに「無敵状態」のため使用できません。');
+                return;
+            }
+            player.invincibleTurns = 4;
+
+            // 本人へのみログを通知
+            socket.emit('syncGameState', {
+                players: gameState.players,
+                turnOrder: gameState.turnOrder,
+                currentTurnPlayerId: gameState.currentTurnPlayerId,
+                round: gameState.round,
+                turnPhase: gameState.turnPhase,
+                log: `「無敵アーマー」を使用しました。4ターンの間「無敵状態」になります。`
+            });
+
+            // 本人以外の他プレイヤーにはログを流さない（ゲーム状態の同期のみ行う）
+            socket.broadcast.emit('syncGameState', {
+                players: gameState.players,
+                turnOrder: gameState.turnOrder,
+                currentTurnPlayerId: gameState.currentTurnPlayerId,
+                round: gameState.round,
+                turnPhase: gameState.turnPhase,
+                log: ''
+            });
         } else if (actionTarget === 'ATTACK') {
             if (!targetPlayerId) {
                 socket.emit('errorMessage', '攻撃対象を選択してください。');
                 return;
             }
 
-            // 木の剣かつ全体攻撃(ALL_LOWER)の場合は単体対象の存在・選択不可チェックをスキップ
             if (card.id === 'wood_sword' && targetPlayerId === 'ALL_LOWER') {
                 player.hand.splice(cardIndex, 1);
                 executeWoodSwordAttack(socket.id, targetPlayerId);
@@ -292,15 +318,12 @@ io.on('connection', (socket) => {
                     executeStandardAttack(socket.id, targetPlayerId, card.id);
                 }
             }
-
-            // 3. 防御カードのセット
         } else if (actionTarget === 'DEFENSE') {
             if (player.defenseCard) {
                 socket.emit('errorMessage', '防御カードはすでにセットされています。');
                 return;
             }
 
-            // 木の盾セットの場合は手札側で保持されている usesLeft を引き継ぎ（未定義なら初期値3）
             let uses = 1;
             if (card.id === 'wood_shield_set') {
                 if (!card.usesLeft) card.usesLeft = 3;
@@ -313,10 +336,10 @@ io.on('connection', (socket) => {
         }
     });
 
-    // セット中の防御カードを攻撃として使用
     socket.on('playDefenseAsAttack', ({ targetPlayerId, attackCount }) => {
         resetScoreChanges();
-        const currentTurnId = gameState.currentTurnPlayerId; if (socket.id !== currentTurnId || gameState.turnPhase !== 'MAIN') {
+        const currentTurnId = gameState.currentTurnPlayerId;
+        if (socket.id !== currentTurnId || gameState.turnPhase !== 'MAIN') {
             socket.emit('errorMessage', 'メインフェーズでのみ使用できます。');
             return;
         }
@@ -355,15 +378,10 @@ io.on('connection', (socket) => {
             const actualAttacks = Math.min(requestedCount, defObj.usesLeft);
 
             executeShieldSetAttack(socket.id, targetPlayerId, defObj, actualAttacks, () => {
-                // カードデータ本体側にも残り回数を同期
                 card.usesLeft = defObj.usesLeft;
-
-                // 使用回数が0になったら防御カードから削除
                 if (defObj.usesLeft <= 0) {
                     player.defenseCard = null;
                 }
-
-                // 攻撃および破棄完了後に最新のゲーム状態（更新された防御カード状態）を全員に同期・送信
                 broadcastGameState();
             });
         } else {
@@ -376,7 +394,8 @@ io.on('connection', (socket) => {
     });
 
     socket.on('discardDefense', () => {
-        const currentTurnId = gameState.currentTurnPlayerId; if (socket.id !== currentTurnId || gameState.turnPhase !== 'MAIN') return;
+        const currentTurnId = gameState.currentTurnPlayerId;
+        if (socket.id !== currentTurnId || gameState.turnPhase !== 'MAIN') return;
         const player = gameState.players[socket.id];
         if (player.defenseCard) {
             player.defenseCard = null;
@@ -429,22 +448,19 @@ io.on('connection', (socket) => {
     });
 });
 
-// 「木の盾」「木の盾セット」用の命中率算出関数
 function getWoodShieldHitRate(attackerScore, targetScore) {
-    const diff = attackerScore - targetScore; // 得点差 x
+    const diff = attackerScore - targetScore;
     const rate = Math.max(0, 1 - Math.abs(diff) / 10000);
-    return rate; // 0.0 ～ 1.0 の確率
+    return rate;
 }
 
-// 通常カード（木の剣 / 木の盾）の攻撃実行
 function executeStandardAttack(attackerId, targetId, cardId) {
     const attacker = gameState.players[attackerId];
     const target = gameState.players[targetId];
     const cardName = cardId === 'wood_sword' ? '木の剣' : '木の盾';
     let logPrefix = `P${attacker.number} が P${target.number} に「${cardName}」で攻撃！ `;
 
-    // 1. 命中率の判定
-    let hitRate = 0.5; // 木の剣は固定50%
+    let hitRate = 0.5;
     if (cardId === 'wood_shield') {
         const diff = attacker.score - target.score;
         if (Math.abs(diff) >= 10000) {
@@ -459,13 +475,17 @@ function executeStandardAttack(attackerId, targetId, cardId) {
     let ratePercent = Math.round(hitRate * 100);
     let rateText = `(命中率:${ratePercent}%) `;
 
-    // 2. 攻撃が失敗（ミス）した場合
     if (!isHit) {
         broadcastGameState(logPrefix + rateText + `攻撃は外れた！（ミス）`);
         return;
     }
 
-    // 3. 攻撃成功時・ガード判定
+    // ★追加：対象が「無敵状態」の場合の無効化処理（カード破棄なし）
+    if (target.invincibleTurns && target.invincibleTurns > 0) {
+        broadcastGameState(logPrefix + rateText + `命中！しかし P${target.number} は「無敵状態」のため攻撃が無効化されました！`);
+        return;
+    }
+
     if (target.defenseCard) {
         const isWoodSwordDefense = target.defenseCard.card.id === 'wood_sword';
         const isAttackerHigherScore = attacker.score > target.score;
@@ -484,31 +504,25 @@ function executeStandardAttack(attackerId, targetId, cardId) {
         }
     }
 
-    // 4. ダメージ適用
     applyScoreChange(target, -3000);
-    target.immunityCount = 2; // 選択不可状態
+    target.immunityCount = 2;
     broadcastGameState(logPrefix + rateText + `命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました)`);
 }
 
 function executeWoodSwordAttack(attackerId, targetTypeOrId) {
     const attacker = gameState.players[attackerId];
 
-    // --- CASE 1: 自分より順位が下のプレイヤー全員への範囲攻撃 ---
     if (targetTypeOrId === 'ALL_LOWER') {
-        // すでに攻撃処理を行ったプレイヤーIDを記録するセット
         const attackedPlayerIds = new Set();
 
         function processNextLowerTarget() {
-            // 最新の全プレイヤー情報を取得
             const currentPlayers = Object.values(gameState.players);
-            // 最新の攻撃者のスコアを取得
             const currentAttackerScore = gameState.players[attackerId].score;
 
-            // 1. 最新の自分より得点が低いプレイヤーを抽出（未攻撃かつ選択不可でないプレイヤーのみ）
             const lowerPlayers = currentPlayers.filter(p =>
                 p.score < currentAttackerScore &&
                 !attackedPlayerIds.has(p.id) &&
-                (!p.immunityCount || p.immunityCount <= 0) // ★ 選択不可状態のプレイヤーを除外
+                (!p.immunityCount || p.immunityCount <= 0)
             );
             if (lowerPlayers.length === 0) {
                 if (attackedPlayerIds.size === 0) {
@@ -517,40 +531,36 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
                 return;
             }
 
-            // 2. 得点が高い順（降順）にソート
             lowerPlayers.sort((a, b) => b.score - a.score);
 
-            // 3. 最高得点グループを特定（同点プレイヤーのグループ化）
             const topScore = lowerPlayers[0].score;
             const topGroup = lowerPlayers.filter(p => p.score === topScore);
 
-            // 4. 同点グループの中からランダムに1人を選択
             const target = topGroup[Math.floor(Math.random() * topGroup.length)];
-
-            // 攻撃対象として記録
             attackedPlayerIds.add(target.id);
 
             let logPrefix = `P${attacker.number} の「木の剣」攻撃 (対象: P${target.number})！ `;
 
-            // 命中判定（1/2）
             const isHit = Math.random() < 0.5;
 
-            // 攻撃失敗（ミス）の場合：連続攻撃を継続して次の順位の対象へ
             if (!isHit) {
                 broadcastGameState(logPrefix + `攻撃は外れた！（ミス）`);
                 setTimeout(processNextLowerTarget, 500);
                 return;
             }
 
-            // 防御カードチェック
+            // ★追加：対象が「無敵状態」の場合の無効化処理
+            if (target.invincibleTurns && target.invincibleTurns > 0) {
+                broadcastGameState(logPrefix + `命中！しかし P${target.number} は「無敵状態」のため攻撃が無効化されました！`);
+                return;
+            }
+
             if (target.defenseCard) {
-                // ★追加: 防御カードが「木の剣」かつ、攻撃者が防御者より高得点の場合は無効化不可
                 const isWoodSwordDefense = target.defenseCard.card.id === 'wood_sword';
                 const isAttackerHigherScore = attacker.score > target.score;
 
                 if (isWoodSwordDefense && isAttackerHigherScore) {
                     broadcastGameState(logPrefix + `命中！相手は「木の剣」をセット中ですが、自分より得点が高いプレイヤーからの攻撃のため防御効果が発動しません！`);
-                    // return せずにそのまま下のダメージ適用処理へ進む
                 } else {
                     target.defenseCard.usesLeft -= 1;
                     let msg = logPrefix + `命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
@@ -559,11 +569,10 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
                         msg += '（相手の防御カード破棄）';
                     }
                     broadcastGameState(msg);
-                    return; // ★ 防御カードでの無効化時も範囲攻撃を中断
+                    return;
                 }
             }
 
-            // ダメージ適用（得点変動）＆ 攻撃中断
             applyScoreChange(target, -3000);
             target.immunityCount = 2;
             broadcastGameState(logPrefix + `命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました。)`);
@@ -574,13 +583,11 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
         return;
     }
 
-    // --- CASE 2: 自分との得点差が0点以上+5000点以下のプレイヤー単体への攻撃 ---
     const target = gameState.players[targetTypeOrId];
     if (!target) return;
 
     const scoreDiff = target.score - attacker.score;
 
-    // バリデーションチェック: 得点差が0未満（自分より得点が低い）または5000点を超える場合は攻撃不可
     if (scoreDiff < 0 || scoreDiff > 5000) {
         const socket = io.sockets.sockets.get(attackerId);
         if (socket) {
@@ -591,7 +598,6 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
 
     let logPrefix = `P${attacker.number} が P${target.number} に「木の剣」で攻撃！ `;
 
-    // 命中判定（1/2）
     const isHit = Math.random() < 0.5;
 
     if (!isHit) {
@@ -599,14 +605,18 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
         return;
     }
 
+    // ★追加：対象が「無敵状態」の場合の無効化処理
+    if (target.invincibleTurns && target.invincibleTurns > 0) {
+        broadcastGameState(logPrefix + `(成功率:50%) 命中！しかし P${target.number} は「無敵状態」のため攻撃が無効化されました！`);
+        return;
+    }
+
     if (target.defenseCard) {
-        // 防御カードが「木の剣」かつ、攻撃者が防御者より高得点の場合は無効化不可
         const isWoodSwordDefense = target.defenseCard.card.id === 'wood_sword';
         const isAttackerHigherScore = attacker.score > target.score;
 
         if (isWoodSwordDefense && isAttackerHigherScore) {
             broadcastGameState(logPrefix + `(成功率:50%) 命中！相手は「木の剣」をセット中ですが、自分より得点が高いプレイヤーからの攻撃のため防御効果が発動しません！`);
-            // ここで return せず後続のダメージ処理へ進む（防御カードも削除しない）
         } else {
             target.defenseCard.usesLeft -= 1;
             let msg = logPrefix + `(成功率:50%) 命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
@@ -624,7 +634,6 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
     broadcastGameState(logPrefix + `(成功率:50%) 命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました)`);
 }
 
-// 木の盾セットのまとめ攻撃処理
 function executeShieldSetAttack(attackerId, targetId, cardObj, maxAttacks, onComplete) {
     const attacker = gameState.players[attackerId];
     const target = gameState.players[targetId];
@@ -651,17 +660,21 @@ function executeShieldSetAttack(attackerId, targetId, cardObj, maxAttacks, onCom
         cardObj.usesLeft -= 1;
         let logPrefix = `P${attacker.number} が P${target.number} に「木の盾セット」で攻撃 (${attackIndex}/${maxAttacks}回目)！ `;
 
-        // 1. 成功率の判定
         const isHit = Math.random() < hitRate;
 
-        // 2. 失敗（ミス）した場合
         if (!isHit) {
             broadcastGameState(logPrefix + `(命中率:${ratePercent}%) 攻撃は外れた！（ミス）`);
             setTimeout(doNextAttack, 500);
             return;
         }
 
-        // 3. 成功した場合・ガード判定
+        // ★追加：対象が「無敵状態」の場合の無効化処理
+        if (target.invincibleTurns && target.invincibleTurns > 0) {
+            broadcastGameState(logPrefix + `(命中率:${ratePercent}%) 命中！しかし P${target.number} は「無敵状態」のため攻撃が無効化されました！`);
+            setTimeout(doNextAttack, 500);
+            return;
+        }
+
         if (target.defenseCard) {
             target.defenseCard.usesLeft -= 1;
             let msg = logPrefix + `(命中率:${ratePercent}%) 命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
@@ -674,7 +687,6 @@ function executeShieldSetAttack(attackerId, targetId, cardObj, maxAttacks, onCom
             return;
         }
 
-        // 4. 防御カードがない場合：ダメージ適用して攻撃中断
         applyScoreChange(target, -3000);
         target.immunityCount = 2;
         broadcastGameState(logPrefix + `(命中率:${ratePercent}%) 命中ヒット！ 得点-3000点！ (P${target.number}が選択不可状態になったため攻撃中断)`);
@@ -685,33 +697,27 @@ function executeShieldSetAttack(attackerId, targetId, cardObj, maxAttacks, onCom
     doNextAttack();
 }
 
-// 大災害カードの実行処理
 function executeDisasterAttack(casterSocketId) {
     const caster = gameState.players[casterSocketId];
     if (!caster) return;
 
-    // 1. まずクライアント全体へカットイン演出を指示 (これは即時送信)
     io.emit('showCutIn', {
         title: '大災害発動！',
-        imagePath: '/images/disaster.png' // 大災害のカード画像パス
+        imagePath: '/images/disaster.png'
     });
 
-    // 2. カットイン演出が終わるまでの間（2000ms = 2秒）カード破棄や数値更新を遅延させる
     setTimeout(() => {
-        // 大災害発動時点の全プレイヤーのスコア・順位スナップショットを作成
         const initialPlayers = Object.values(gameState.players).map(p => ({
             id: p.id,
             score: p.score
         }));
 
-        // 自分より得点が高いプレイヤーの数 + 1 を順位とする（同点の場合は同じ順位・同じマイナス点）
         const rankMap = {};
         initialPlayers.forEach(p => {
             const higherCount = initialPlayers.filter(other => other.score > p.score).length;
             rankMap[p.id] = higherCount + 1;
         });
 
-        // 順位に応じたダメージ定義
         const damageByRank = {
             1: -6000,
             2: -4000,
@@ -719,30 +725,29 @@ function executeDisasterAttack(casterSocketId) {
             4: -1000
         };
 
-        // 使用者以外の全員に効果を適用
         Object.values(gameState.players).forEach(player => {
-            if (player.id === casterSocketId) return; // 使用者自身は除外
+            if (player.id === casterSocketId) return;
 
             const rank = rankMap[player.id];
             const damage = damageByRank[rank] || 0;
 
-            // 選択不可状態（immunityCount > 0）でない場合のみ得点ダメージを適用
-            if (!player.immunityCount || player.immunityCount <= 0) {
-                applyScoreChange(player, damage);
+            // ★追加：「無敵状態」でなく、かつ選択不可状態でもない場合のみダメージ適用
+            const isInvincible = player.invincibleTurns && player.invincibleTurns > 0;
+            const isImmune = player.immunityCount && player.immunityCount > 0;
 
-                // 選択不可状態（1巡分）を新規付与
+            if (!isInvincible && !isImmune) {
+                applyScoreChange(player, damage);
                 player.immunityCount = 2;
             }
 
-            // 手札・防御カードを全破棄（すでに選択不可状態のプレイヤーにも適用）
-            player.hand = [];
+            // 無敵状態であっても「大災害」を受けた場合は手札・防御カードが破棄される
+            player.hand = player.hand.filter(c => c.id === 'invincible_armor'); // 無敵アーマー自体は破棄されない
             player.defenseCard = null;
         });
 
-        // 3. 処理完了後にゲーム状態を全体同期＆ログ送信（ここで画面上のスコアやカードが更新されます）
-        broadcastGameState(`P${caster.number} が「大災害」を発動！(選択不可状態のプレイヤーはダメージ無効化)`);
+        broadcastGameState(`P${caster.number} が「大災害」を発動！(無敵状態・選択不可状態のプレイヤーはダメージ無効化)`);
 
-    }, 2000); // 演出時間に合わせて遅延時間を調整してください (例: 1500～2000ms)
+    }, 2000);
 }
 
 function skipDraftAndStartGame() {
@@ -824,7 +829,6 @@ function finalizeDraftAndStartGame() {
     gameState.started = true;
     gameState.actedPlayerIds = [];
 
-    // 得点順でソート
     const sortedPlayers = Object.values(gameState.players).sort((a, b) => b.score - a.score);
     gameState.turnOrder = sortedPlayers.map(p => p.id);
     gameState.currentTurnPlayerId = sortedPlayers[0].id;
@@ -843,22 +847,28 @@ function startPlayerTurn() {
 function proceedToNextTurn() {
     const endingPlayerId = gameState.currentTurnPlayerId;
 
-    // ターンを終えたプレイヤーを「行動済み」に記録
     if (endingPlayerId && !gameState.actedPlayerIds.includes(endingPlayerId)) {
         gameState.actedPlayerIds.push(endingPlayerId);
     }
 
-    // ターンを終えたプレイヤー以外の「選択不可状態」のカウントを減らす
+    // ★追加：全プレイヤーの「無敵状態」および「選択不可状態」のターンカウント減少
     Object.values(gameState.players).forEach(p => {
+        // 無敵状態カウント減算
+        if (p.invincibleTurns && p.invincibleTurns > 0) {
+            p.invincibleTurns -= 1;
+            if (p.invincibleTurns === 0) {
+                // 無敵状態解除時に無敵アーマーカードを破棄[cite: 14]
+                p.hand = p.hand.filter(c => c.id !== 'invincible_armor');
+            }
+        }
+
+        // 選択不可状態カウント減算[cite: 14]
         if (p.id !== endingPlayerId && p.immunityCount && p.immunityCount > 0) {
             p.immunityCount -= 1;
         }
     });
-
-    // 全員がこの巡目で行動を終えたか判定
     if (gameState.actedPlayerIds.length >= Object.keys(gameState.players).length) {
-        // --- 巡目の終了と次の巡目の準備 ---
-        gameState.actedPlayerIds = []; // 行動済みリストをリセット
+        gameState.actedPlayerIds = [];
         gameState.round++;
 
         if (gameState.round > 10) {
@@ -868,11 +878,9 @@ function proceedToNextTurn() {
         }
     }
 
-    // ★現在の最新スコア順でプレイヤーをソート（降順）
     const sortedPlayers = Object.values(gameState.players).sort((a, b) => b.score - a.score);
     gameState.turnOrder = sortedPlayers.map(p => p.id);
 
-    // ★まだ行動していない最高順位のプレイヤーを探す
     const nextPlayer = sortedPlayers.find(p => !gameState.actedPlayerIds.includes(p.id));
 
     if (nextPlayer) {
@@ -900,9 +908,7 @@ function resetScoreChanges() {
     });
 }
 
-// 2. applyScoreChange から resetScoreChanges() の呼び出しを削除
 function applyScoreChange(player, amount) {
-    // resetScoreChanges(); ← この行を削除して複数人のスコア変動情報を維持できるようにする
     player.prevScore = player.score;
     player.scoreChange = amount;
     player.score += amount;
