@@ -534,7 +534,7 @@
             wood_shield: '木の盾',
             wood_shield_set: '木の盾セット',
             disaster: '大災害',
-            invincible_armor: '無敵アーマー' // ★追加
+            invincible_armor: '無敵アーマー'
         };
 
         socket.on('connect', () => { myId = socket.id; });
@@ -804,7 +804,6 @@
                     statusBadge += `<span style="color:#e74c3c; font-weight:bold; margin-left:5px;">[選択不可:${p.immunityCount}]</span>`;
                 }
 
-                // ★修正：無敵状態バッジの表示は自分（isMe）だけに限定する[cite: 13]
                 if (isMe && p.invincibleTurns > 0) {
                     statusBadge += `<span style="color:#f1c40f; font-weight:bold; margin-left:5px;">[無敵:${p.invincibleTurns}]</span>`;
                 }
@@ -993,15 +992,58 @@
                 } else if (card.id === 'disaster') {
                     html += `<button class="btn" style="background:#c0392b; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">大災害を発動する</button>`;
                 } else if (card.id === 'invincible_armor') {
-                    // ★追加：無敵アーマー使用ボタンの描画
                     html += `<button class="btn" style="background:#f1c40f; color:#000; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">無敵アーマーを使用する</button>`;
                 } else {
                     const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
-                    html += `<div style="background:#1a252f; padding:10px; border-radius:6px; margin-bottom:10px; text-align:left;">`;
-                    html += `<b style="color:#e74c3c;">⚔ 攻撃する:</b><br>`;
-                    html += `対象: <select id="drop-target-${card.instanceId}" onchange="updateHitRateDisplay(this)">`;
+                    let targetOptionsHtml = '';
+                    let hasValidTarget = false;
 
-                    if (card.id === 'wood_sword') {
+                    if (card.id === 'wood_shield') {
+                        const allPlayers = Object.values(latestGameState.players);
+                        const myScore = myPlayer.score;
+
+                        const validCandidates = allPlayers.filter(p => {
+                            if (p.id === myId) return false;
+                            if (p.immunityCount && p.immunityCount > 0) return false;
+                            if (latestGameState.round === 1) {
+                                const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
+                                if (pOrderIdx > myOrderIdx) return false;
+                            }
+                            return true;
+                        });
+
+                        const hitCandidates = validCandidates.filter(p => Math.abs(myScore - p.score) < 10000);
+                        const equalOrHigher = hitCandidates.filter(p => p.score >= myScore);
+                        const lower = hitCandidates.filter(p => p.score < myScore);
+
+                        if (equalOrHigher.length > 0) {
+                            hasValidTarget = true;
+                            const groupStr = equalOrHigher.map(p => p.name).join(',');
+                            const rateDetailStr = equalOrHigher.map(p => {
+                                const diff = p.score - myScore;
+                                const rate = Math.round(Math.max(0, 1 - Math.abs(diff) / 10000) * 100);
+                                return `${p.name}: ${rate}%`;
+                            }).join(', ');
+                            targetOptionsHtml += `<option value="EQUAL_OR_HIGHER" data-hitrate="${rateDetailStr}">同点以上 (${groupStr})</option>`;
+                        }
+                        if (lower.length > 0) {
+                            hasValidTarget = true;
+                            lower.sort((a, b) => b.score - a.score);
+
+                            let currentMissRate = 1.0;
+                            const rateDetails = lower.map(p => {
+                                const baseHitRate = Math.max(0, 1 - Math.abs(myScore - p.score) / 10000);
+                                const calculatedHitRate = currentMissRate * baseHitRate;
+                                currentMissRate *= (1 - baseHitRate);
+                                const ratePercent = Math.round(calculatedHitRate * 1000) / 10;
+                                return `${p.name}: ${ratePercent}%`;
+                            });
+
+                            const groupStr = lower.map(p => p.name).join(',');
+                            const rateDetailStr = rateDetails.join(', ');
+                            targetOptionsHtml += `<option value="LOWER" data-hitrate="${rateDetailStr}">下位全員 (${groupStr})</option>`;
+                        }
+                    } else if (card.id === 'wood_sword') {
                         const allPlayers = Object.values(latestGameState.players);
                         const myScore = myPlayer.score;
 
@@ -1011,7 +1053,8 @@
                                 const isImmune = p.immunityCount && p.immunityCount > 0;
 
                                 if (scoreDiff >= 0 && scoreDiff <= 5000 && !isImmune) {
-                                    html += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
+                                    hasValidTarget = true;
+                                    targetOptionsHtml += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
                                 }
                             }
                         });
@@ -1026,9 +1069,10 @@
                             }
 
                             if (lowerPlayers.length > 0) {
+                                hasValidTarget = true;
                                 const hitRates = calculateLowerTargetsHitRates(lowerPlayers);
                                 const rateDetailStr = hitRates.map(item => `${item.player.name}: ${item.hitRate}%`).join(', ');
-                                html += `<option value="ALL_LOWER" data-hitrate="${rateDetailStr}">下位全員 (${rateDetailStr})</option>`;
+                                targetOptionsHtml += `<option value="ALL_LOWER" data-hitrate="${rateDetailStr}">下位全員 (${rateDetailStr})</option>`;
                             }
                         }
                     } else {
@@ -1039,33 +1083,50 @@
 
                                 if (latestGameState.round === 1 && pOrderIdx > myOrderIdx) {
                                 } else if (!isImmune) {
-                                    if (card.id === 'wood_shield' || card.id === 'wood_shield_set') {
+                                    if (card.id === 'wood_shield_set') {
                                         const diff = myPlayer.score - p.score;
                                         if (Math.abs(diff) < 10000) {
+                                            hasValidTarget = true;
                                             const hitRate = Math.max(0, 1 - Math.abs(diff) / 10000);
                                             const ratePercent = Math.round(hitRate * 100);
-                                            html += `<option value="${p.id}" data-hitrate="${ratePercent}%">${p.name} (命中率: ${ratePercent}%)</option>`;
+                                            targetOptionsHtml += `<option value="${p.id}" data-hitrate="${ratePercent}%">${p.name} (命中率: ${ratePercent}%)</option>`;
                                         }
                                     } else {
-                                        html += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
+                                        hasValidTarget = true;
+                                        targetOptionsHtml += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
                                     }
                                 }
                             }
                         });
                     }
 
-                    html += `</select><br>`;
-                    html += `<div id="hit-rate-info" style="font-size:0.85em; margin-top:4px; min-height:1.2em;"></div>`;
+                    html += `<div style="background:#1a252f; padding:10px; border-radius:6px; margin-bottom:10px; text-align:left;">`;
+                    html += `<b style="color:#e74c3c;">⚔ 攻撃する:</b><br>`;
 
-                    if (card.id === 'wood_shield_set') {
-                        html += `回数: <select id="drop-attack-count-${card.instanceId}">`;
-                        for (let i = 1; i <= usesLeft; i++) {
-                            html += `<option value="${i}">${i}回</option>`;
+                    if (!hasValidTarget) {
+                        html += `<div style="color:#e74c3c; font-size:0.85em; font-weight:bold; margin:4px 0;">対象が存在しません</div>`;
+                        html += `対象: <select id="drop-target-${card.instanceId}" disabled style="background:#334155; color:#94a3b8; cursor:not-allowed;"></select><br>`;
+                        html += `<div id="hit-rate-info" style="font-size:0.85em; margin-top:4px; min-height:1.2em;"></div>`;
+                        if (card.id === 'wood_shield_set') {
+                            html += `回数: <select id="drop-attack-count-${card.instanceId}" disabled style="background:#334155; color:#94a3b8; cursor:not-allowed;">`;
+                            for (let i = 1; i <= usesLeft; i++) {
+                                html += `<option value="${i}">${i}回</option>`;
+                            }
+                            html += `</select><br>`;
                         }
-                        html += `</select><br>`;
+                        html += `<button class="btn" disabled style="background:#7f8c8d; margin-top:5px; width:100%; cursor:not-allowed;">攻撃実行</button>`;
+                    } else {
+                        html += `対象: <select id="drop-target-${card.instanceId}" onchange="updateHitRateDisplay(this)">${targetOptionsHtml}</select><br>`;
+                        html += `<div id="hit-rate-info" style="font-size:0.85em; margin-top:4px; min-height:1.2em;"></div>`;
+                        if (card.id === 'wood_shield_set') {
+                            html += `回数: <select id="drop-attack-count-${card.instanceId}">`;
+                            for (let i = 1; i <= usesLeft; i++) {
+                                html += `<option value="${i}">${i}回</option>`;
+                            }
+                            html += `</select><br>`;
+                        }
+                        html += `<button class="btn" style="background:#e74c3c; margin-top:5px; width:100%;" onclick="executeDropPlayCard('${card.instanceId}', 'ATTACK')">攻撃実行</button>`;
                     }
-
-                    html += `<button class="btn" style="background:#e74c3c; margin-top:5px; width:100%;" onclick="executeDropPlayCard('${card.instanceId}', 'ATTACK')">攻撃実行</button>`;
                     html += `</div>`;
 
                     html += `<div style="margin-bottom:8px;">`;
@@ -1078,41 +1139,105 @@
                 }
             } else if (source === 'DEFENSE') {
                 const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
-                html += `<div style="background:#1a252f; padding:10px; border-radius:6px; margin-bottom:10px; text-align:left;">`;
-                html += `<b style="color:#e74c3c;">⚔ 防御を外して攻撃:</b><br>`;
-                html += `対象: <select id="drop-def-attack-target" onchange="updateHitRateDisplay(this)">`;
+                let targetOptionsHtml = '';
+                let hasValidTarget = false;
 
-                Object.values(latestGameState.players).forEach(p => {
-                    if (p.id !== myId) {
-                        const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
-                        const isImmune = p.immunityCount && p.immunityCount > 0;
-                        if (latestGameState.round === 1 && pOrderIdx > myOrderIdx) {
-                        } else if (!isImmune) {
-                            if (card.id === 'wood_shield' || card.id === 'wood_shield_set') {
-                                const diff = myPlayer.score - p.score;
-                                if (Math.abs(diff) < 10000) {
-                                    const hitRate = Math.max(0, 1 - Math.abs(diff) / 10000);
-                                    const ratePercent = Math.round(hitRate * 100);
-                                    html += `<option value="${p.id}" data-hitrate="${ratePercent}%">${p.name} (命中率: ${ratePercent}%)</option>`;
+                if (card.id === 'wood_shield') {
+                    const allPlayers = Object.values(latestGameState.players);
+                    const myScore = myPlayer.score;
+
+                    const validCandidates = allPlayers.filter(p => {
+                        if (p.id === myId) return false;
+                        if (p.immunityCount && p.immunityCount > 0) return false;
+                        if (latestGameState.round === 1) {
+                            const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
+                            if (pOrderIdx > myOrderIdx) return false;
+                        }
+                        return true;
+                    });
+
+                    const hitCandidates = validCandidates.filter(p => Math.abs(myScore - p.score) < 10000);
+                    const equalOrHigher = hitCandidates.filter(p => p.score >= myScore);
+                    const lower = hitCandidates.filter(p => p.score < myScore);
+
+                    if (equalOrHigher.length > 0) {
+                        hasValidTarget = true;
+                        const groupStr = equalOrHigher.map(p => p.name).join(',');
+                        const rateDetailStr = equalOrHigher.map(p => {
+                            const diff = p.score - myScore;
+                            const rate = Math.round(Math.max(0, 1 - Math.abs(diff) / 10000) * 100);
+                            return `${p.name}: ${rate}%`;
+                        }).join(', ');
+                        targetOptionsHtml += `<option value="EQUAL_OR_HIGHER" data-hitrate="${rateDetailStr}">同点以上 (${groupStr})</option>`;
+                    }
+                    if (lower.length > 0) {
+                        hasValidTarget = true;
+                        lower.sort((a, b) => b.score - a.score);
+
+                        let currentMissRate = 1.0;
+                        const rateDetails = lower.map(p => {
+                            const baseHitRate = Math.max(0, 1 - Math.abs(myScore - p.score) / 10000);
+                            const calculatedHitRate = currentMissRate * baseHitRate;
+                            currentMissRate *= (1 - baseHitRate);
+                            const ratePercent = Math.round(calculatedHitRate * 1000) / 10;
+                            return `${p.name}: ${ratePercent}%`;
+                        });
+
+                        const groupStr = lower.map(p => p.name).join(',');
+                        const rateDetailStr = rateDetails.join(', ');
+                        targetOptionsHtml += `<option value="LOWER" data-hitrate="${rateDetailStr}">下位全員 (${groupStr})</option>`;
+                    }
+                } else {
+                    Object.values(latestGameState.players).forEach(p => {
+                        if (p.id !== myId) {
+                            const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
+                            const isImmune = p.immunityCount && p.immunityCount > 0;
+                            if (latestGameState.round === 1 && pOrderIdx > myOrderIdx) {
+                            } else if (!isImmune) {
+                                if (card.id === 'wood_shield_set') {
+                                    const diff = myPlayer.score - p.score;
+                                    if (Math.abs(diff) < 10000) {
+                                        hasValidTarget = true;
+                                        const hitRate = Math.max(0, 1 - Math.abs(diff) / 10000);
+                                        const ratePercent = Math.round(hitRate * 100);
+                                        targetOptionsHtml += `<option value="${p.id}" data-hitrate="${ratePercent}%">${p.name} (命中率: ${ratePercent}%)</option>`;
+                                    }
+                                } else {
+                                    hasValidTarget = true;
+                                    targetOptionsHtml += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
                                 }
-                            } else {
-                                html += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
                             }
                         }
-                    }
-                });
-                html += `</select><br>`;
-                html += `<div id="hit-rate-info" style="font-size:0.85em; margin-top:4px; min-height:1.2em;"></div>`;
-
-                if (card.id === 'wood_shield_set') {
-                    html += `回数: <select id="drop-def-attack-count">`;
-                    for (let i = 1; i <= usesLeft; i++) {
-                        html += `<option value="${i}">${i}回</option>`;
-                    }
-                    html += `</select><br>`;
+                    });
                 }
 
-                html += `<button class="btn" style="background:#e74c3c; margin-top:5px; width:100%;" onclick="executeDropDefenseAttack()">攻撃する</button>`;
+                html += `<div style="background:#1a252f; padding:10px; border-radius:6px; margin-bottom:10px; text-align:left;">`;
+                html += `<b style="color:#e74c3c;">⚔ 防御を外して攻撃:</b><br>`;
+
+                if (!hasValidTarget) {
+                    html += `<div style="color:#e74c3c; font-size:0.85em; font-weight:bold; margin:4px 0;">対象が存在しません</div>`;
+                    html += `対象: <select id="drop-def-attack-target" disabled style="background:#334155; color:#94a3b8; cursor:not-allowed;"></select><br>`;
+                    html += `<div id="hit-rate-info" style="font-size:0.85em; margin-top:4px; min-height:1.2em;"></div>`;
+                    if (card.id === 'wood_shield_set') {
+                        html += `回数: <select id="drop-def-attack-count" disabled style="background:#334155; color:#94a3b8; cursor:not-allowed;">`;
+                        for (let i = 1; i <= usesLeft; i++) {
+                            html += `<option value="${i}">${i}回</option>`;
+                        }
+                        html += `</select><br>`;
+                    }
+                    html += `<button class="btn" disabled style="background:#7f8c8d; margin-top:5px; width:100%; cursor:not-allowed;">攻撃実行</button>`;
+                } else {
+                    html += `対象: <select id="drop-def-attack-target" onchange="updateHitRateDisplay(this)">${targetOptionsHtml}</select><br>`;
+                    html += `<div id="hit-rate-info" style="font-size:0.85em; margin-top:4px; min-height:1.2em;"></div>`;
+                    if (card.id === 'wood_shield_set') {
+                        html += `回数: <select id="drop-def-attack-count">`;
+                        for (let i = 1; i <= usesLeft; i++) {
+                            html += `<option value="${i}">${i}回</option>`;
+                        }
+                        html += `</select><br>`;
+                    }
+                    html += `<button class="btn" style="background:#e74c3c; margin-top:5px; width:100%;" onclick="executeDropDefenseAttack()">攻撃する</button>`;
+                }
                 html += `</div>`;
 
                 html += `<button class="btn" style="background:#c0392b; width:100%;" onclick="socket.emit('discardDefense'); closeDropActionModal();">防御カードを破棄</button>`;
@@ -1122,7 +1247,7 @@
             modal.style.display = 'block';
 
             const targetSelect = document.getElementById(`drop-target-${card.instanceId}`) || document.getElementById('drop-def-attack-target');
-            if (targetSelect) {
+            if (targetSelect && !targetSelect.disabled) {
                 updateHitRateDisplay(targetSelect);
             }
         }
