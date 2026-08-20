@@ -534,7 +534,8 @@
             wood_shield: '木の盾',
             wood_shield_set: '木の盾セット',
             disaster: '大災害',
-            invincible_armor: '無敵アーマー'
+            invincible_armor: '無敵アーマー',
+            dark_matter: 'ダークマター' // ★追加
         };
 
         socket.on('connect', () => { myId = socket.id; });
@@ -812,10 +813,12 @@
                     statusBadge += `<span style="color:#e74c3c; font-weight:bold; margin-left:5px;">[選択不可:${p.immunityCount}]</span>`;
                 }
 
-                if (isMe && p.invincibleTurns > 0) {
-                    statusBadge += `<span style="color:#f1c40f; font-weight:bold; margin-left:5px;">[無敵:${p.invincibleTurns}]</span>`;
+                // 「無敵状態」バッジ表示制御（ダークマターは全体公開、無敵アーマーは使用者の画面にのみ表示）
+                if (p.invincibleTurns > 0) {
+                    if (p.invincibleSource === 'DARK_MATTER' || isMe) {
+                        statusBadge += `<span style="color:#f1c40f; font-weight:bold; margin-left:5px;">[無敵:${p.invincibleTurns}]</span>`;
+                    }
                 }
-
                 box.innerHTML = `
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <strong>${posName} P${p.number} ${isMe ? '(あなた)' : ''} ${isTurn ? '★' : ''}${statusBadge}</strong>
@@ -1098,6 +1101,8 @@
                     html += `<button class="btn" style="background:#c0392b; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">大災害を発動する</button>`;
                 } else if (card.id === 'invincible_armor') {
                     html += `<button class="btn" style="background:#f1c40f; color:#000; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">無敵アーマーを使用する</button>`;
+                } else if (card.id === 'dark_matter') { // ★追加
+                    html += `<button class="btn" style="background:#8e44ad; color:#fff; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">ダークマターを使用する</button>`;
                 } else {
                     const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
                     let targetOptionsHtml = '';

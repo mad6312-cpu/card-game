@@ -50,6 +50,13 @@ const CARD_DECK = [
         category: 'SPECIAL',
         image: '/images/invincible_armor.png',
         desc: '特殊カード: 使用から合計4ターン経過まで「無敵状態」になる。防御カードセット時は使用不可。使用時手札から破棄。'
+    },
+    {
+        id: 'dark_matter',
+        name: 'ダークマター',
+        category: 'SPECIAL',
+        image: '/images/dark_matter.png',
+        desc: '特殊: 次の自分ターンまで無敵状態付与＆+5000点。使用前と同点、または使用後に追いついた/逆転した相手(無敵・選択不可除く)の手札・防御カード全破棄＆-3000点＆選択不可(2ターン)付与。'
     }
 ];
 
@@ -59,7 +66,8 @@ let cardSettings = {
     wood_shield: true,
     wood_shield_set: true,
     disaster: true,
-    invincible_armor: true
+    invincible_armor: true,
+    dark_matter: true // ★追加
 };
 
 function createInitialState() {
@@ -252,6 +260,7 @@ io.on('connection', (socket) => {
             executeDisasterAttack(socket.id);
         } else if (card.id === 'invincible_armor') {
             player.invincibleTurns = 4;
+            player.invincibleSource = 'ARMOR'; // ★追加: 無敵ソースの識別
             player.hand.splice(cardIndex, 1);
 
             socket.emit('syncGameState', {
@@ -271,6 +280,9 @@ io.on('connection', (socket) => {
                 turnPhase: gameState.turnPhase,
                 log: ''
             });
+        } else if (card.id === 'dark_matter') { // ★追加
+            player.hand.splice(cardIndex, 1);
+            executeDarkMatter(socket.id);
         } else if (actionTarget === 'ATTACK') {
             if (!targetPlayerId) {
                 socket.emit('errorMessage', '攻撃対象を選択してください。');
@@ -1045,6 +1057,68 @@ function executeDisasterAttack(casterSocketId) {
     }, 2000);
 }
 
+function executeDarkMatter(casterSocketId) {
+    const player = gameState.players[casterSocketId];
+    if (!player) return;
+
+    // 1. 無敵状態の付与（次の自分のターン開始時まで＝他プレイヤー3人分＋自身のターン遷移で計4ターン設定）
+    player.invincibleTurns = 4;
+    player.invincibleSource = 'DARK_MATTER';
+
+    // 2. 自身の得点加算 (+5000点)
+    const prevMyScore = player.score;
+    applyScoreChange(player, 5000);
+    const newMyScore = player.score;
+
+    const penalizedNames = [];
+
+    // ★追加: 1巡目の順番チェック用の位置インデックスを取得
+    const myOrderIndex = gameState.turnOrder.indexOf(casterSocketId);
+
+    // 3. 相手へのペナルティ（手札・防御カード破棄 ＆ -3000点）
+    Object.values(gameState.players).forEach(opponent => {
+        if (opponent.id === player.id) return;
+
+        // ★追加: 1巡目において、使用者より後に行動するプレイヤーは対象から除外
+        if (gameState.round === 1) {
+            const opponentOrderIndex = gameState.turnOrder.indexOf(opponent.id);
+            if (opponentOrderIndex > myOrderIndex) return;
+        }
+
+        // 対象が「無敵状態」または「選択不可状態」の場合はスキップ
+        const isInvincible = opponent.invincibleTurns && opponent.invincibleTurns > 0;
+        const isImmune = opponent.immunityCount && opponent.immunityCount > 0;
+        if (isInvincible || isImmune) return;
+
+        // 条件A： カード使用前に自分と同点だった相手
+        const isConditionA = (opponent.score === prevMyScore);
+        // 条件B： カード使用後に自分に追いつかれた・逆転された相手 (使用前は自分より高く、使用後に自分が同点以上)
+        const isConditionB = (opponent.score > prevMyScore && newMyScore >= opponent.score);
+
+        if (isConditionA || isConditionB) {
+            // 手札・防御カードをすべて破棄
+            opponent.hand = [];
+            opponent.defenseCard = null;
+
+            // 得点を -3000点
+            applyScoreChange(opponent, -3000);
+
+            // 4. 「選択不可状態」の付与 (2ターン対象外)
+            opponent.immunityCount = 2;
+
+            penalizedNames.push(`P${opponent.number}`);
+        }
+    });
+
+    let logMsg = `P${player.number} が「ダークマター」を使用！ 無敵状態になり、+5000点獲得！`;
+    if (penalizedNames.length > 0) {
+        logMsg += ` 対象となった ${penalizedNames.join(', ')} の手札・防御カードを全破棄し、-3000点＆選択不可状態を付与！`;
+    }
+
+    // 全プレイヤーにログと画面更新を通知
+    broadcastGameState(logMsg);
+}
+
 function handleInvincibleArmorExpire(player) {
     const prevScore = player.score;
 
@@ -1203,9 +1277,12 @@ function proceedToNextTurn() {
         }
     });
 
-    // 無敵状態解除時の追加効果を実行
+    // proceedToNextTurn 関数内の無敵解除処理部分
     expiredInvinciblePlayers.forEach(p => {
-        handleInvincibleArmorExpire(p);
+        if (p.invincibleSource === 'ARMOR') {
+            handleInvincibleArmorExpire(p);
+        }
+        p.invincibleSource = null;
     });
 
     if (gameState.actedPlayerIds.length >= Object.keys(gameState.players).length) {
