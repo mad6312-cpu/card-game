@@ -416,6 +416,17 @@
 <body>
     <details class="debug-score-panel" open>
         <summary>🛠 スコア調整 (デバッグ)</summary>
+
+        <!-- ★追加: ボーナスモーダルスキップ切り替えスイッチ -->
+        <div
+            style="margin-top: 6px; padding-bottom: 6px; border-bottom: 1px solid #334155; display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-weight: bold; color: #cbd5e1;">ボーナススキップ:</span>
+            <label style="cursor: pointer; font-size: 11px;">
+                <input type="checkbox" id="debug-skip-bonus-check" checked onchange="toggleBonusSkip(this.checked)">
+                <span id="debug-skip-bonus-text" style="color: #2ecc71; font-weight: bold;">ON</span>
+            </label>
+        </div>
+
         <div id="debug-score-list" style="margin-top: 6px;">
             <div style="color: #94a3b8; font-size: 11px;">プレイヤー接続待機中...</div>
         </div>
@@ -815,7 +826,11 @@
 
                 // 「無敵状態」バッジ表示制御（ダークマターは全体公開、無敵アーマーは使用者の画面にのみ表示）
                 if (p.invincibleTurns > 0) {
-                    if (p.invincibleSource === 'DARK_MATTER' || isMe) {
+                    if (p.invincibleSource === 'DARK_MATTER') {
+                        // ダークマター：残ターン数を非表示
+                        statusBadge += `<span style="color:#f1c40f; font-weight:bold; margin-left:5px;">[無敵]</span>`;
+                    } else if (isMe) {
+                        // 無敵アーマー：自分のみ残ターン数を表示
                         statusBadge += `<span style="color:#f1c40f; font-weight:bold; margin-left:5px;">[無敵:${p.invincibleTurns}]</span>`;
                     }
                 }
@@ -840,6 +855,30 @@
             document.getElementById('bonus-choice-modal').style.display = 'none';
         }
 
+        // ★追加: ボーナスキップ設定フラグ（初期値: true）
+        let skipBonusModal = true;
+
+        // 1. スイッチ操作時にサーバーへ変更を送信するよう変更
+        function toggleBonusSkip(enabled) {
+            socket.emit('toggleBonusSkipSetting', enabled);
+        }
+
+        // 2. サーバーから全プレイヤー一括同期イベントを受信した際の処理
+        socket.on('updateBonusSkipSetting', (enabled) => {
+            skipBonusModal = enabled;
+
+            // UI（チェックボックスと表示テキスト）を更新
+            const checkEl = document.getElementById('debug-skip-bonus-check');
+            const textEl = document.getElementById('debug-skip-bonus-text');
+
+            if (checkEl) checkEl.checked = enabled;
+            if (textEl) {
+                textEl.innerText = enabled ? 'ON' : 'OFF';
+                textEl.style.color = enabled ? '#2ecc71' : '#e74c3c';
+            }
+        });
+
+        // 既存の updateTurnControls(data) 関数の改修
         function updateTurnControls(data) {
             const roundInfo = document.getElementById('round-info');
             const endTurnBtnContainer = document.getElementById('center-end-turn-btn');
@@ -859,6 +898,13 @@
             if (!isMyTurn) return;
 
             if (data.turnPhase === 'BONUS_CHOICE') {
+                // ★追加: スキップ判定
+                if (skipBonusModal) {
+                    // モーダルを表示せず、即座に「受け取らない(false)」を選択して送信
+                    chooseBonusChoice(false);
+                    return;
+                }
+
                 if (bonusModal) bonusModal.style.display = 'block';
                 roundInfo.innerHTML += ` <span style="color:#f1c40f;">【ボーナス選択中】</span>`;
             } else if (data.turnPhase === 'MAIN') {
@@ -930,43 +976,99 @@
         function calculateWoodShieldGroupHitRates(candidates, myScore, attackCount = 1) {
             if (!candidates || candidates.length === 0) return { groupStr: '', rateDetailStr: '' };
 
-            // 得点差（絶対値）でグループ分け
-            const groupedMap = new Map();
-            candidates.forEach(p => {
-                const diff = Math.abs(myScore - p.score);
-                if (!groupedMap.has(diff)) {
-                    groupedMap.set(diff, []);
-                }
-                groupedMap.get(diff).push(p);
-            });
+            // 各プレイヤーの累計被弾（命中）確率を保持するマップ
+            const hitProbabilities = {};
+            candidates.forEach(p => hitProbabilities[p.id] = 0);
 
-            // 差が小さい順（判定優先度順）にソート
-            const sortedDiffs = Array.from(groupedMap.keys()).sort((a, b) => a - b);
+            // 初期状態：全員が未被弾（alive）の確率1.0
+            // state: { aliveIds: [...], prob: 1.0 }
+            let currentStates = [{
+                aliveIds: candidates.map(p => p.id),
+                prob: 1.0
+            }];
 
-            let currentMissRate = 1.0;
+            // 指定された攻撃回数分、状態遷移をシミュレート
+            for (let step = 0; step < attackCount; step++) {
+                const nextStates = [];
+
+                currentStates.forEach(state => {
+                    const aliveCandidates = candidates.filter(p => state.aliveIds.includes(p.id));
+
+                    // 生き残りがいない場合、確率はそのまま次へ
+                    if (aliveCandidates.length === 0) {
+                        nextStates.push(state);
+                        return;
+                    }
+
+                    // --- 1回分のグループ攻撃ヒット確率を算出 ---
+                    // 1. 点差順にグループ化
+                    const groups = [];
+                    const sorted = [...aliveCandidates].sort((a, b) => Math.abs(myScore - a.score) - Math.abs(myScore - b.score));
+                    sorted.forEach(p => {
+                        const diff = Math.abs(myScore - p.score);
+                        let last = groups[groups.length - 1];
+                        if (last && last.diff === diff) last.players.push(p);
+                        else groups.push({ diff, players: [p] });
+                    });
+
+                    // 2. 各個人の「この1回でヒットする確率」を計算（均等分散を反映）
+                    const singleHitProb = {};
+                    let pMissCumulative = 1.0;
+
+                    groups.forEach(g => {
+                        const m = g.players.length;
+                        const r = Math.max(0, 1 - g.diff / 10000);
+                        if (r <= 0 || m === 0) return;
+
+                        const pGroupAllMiss = Math.pow(1 - r, m);
+                        const pGroupHitTotal = pMissCumulative * (1 - pGroupAllMiss);
+                        const pIndividual = pGroupHitTotal / m; // 同点分散
+
+                        g.players.forEach(p => singleHitProb[p.id] = pIndividual);
+                        pMissCumulative *= pGroupAllMiss;
+                    });
+
+                    // 3. 全員ミスした場合の分岐
+                    const totalHitProbInThisStep = Object.values(singleHitProb).reduce((a, b) => a + b, 0);
+                    const missProbInThisStep = 1 - totalHitProbInThisStep;
+
+                    if (missProbInThisStep > 0) {
+                        nextStates.push({
+                            aliveIds: [...state.aliveIds],
+                            prob: state.prob * missProbInThisStep
+                        });
+                    }
+
+                    // 4. 誰か1人にヒットした場合の分岐（ターゲット再抽選・離脱処理）
+                    Object.keys(singleHitProb).forEach(hitPlayerId => {
+                        const pHit = singleHitProb[hitPlayerId];
+                        if (pHit <= 0) return;
+
+                        const transitionProb = state.prob * pHit;
+
+                        // 命中確率を加算
+                        hitProbabilities[hitPlayerId] += transitionProb;
+
+                        // 被弾したプレイヤーを除外して次の状態へ
+                        nextStates.push({
+                            aliveIds: state.aliveIds.filter(id => id !== hitPlayerId),
+                            prob: transitionProb
+                        });
+                    });
+                });
+
+                currentStates = nextStates;
+            }
+
+            // 表示用文字列の成形
             const rateDetails = [];
             const playerNames = [];
 
-            sortedDiffs.forEach(diff => {
-                const group = groupedMap.get(diff);
-                const m = group.length;
-                const baseHitRate = Math.max(0, 1 - diff / 10000);
-
-                // 同点グループ内での1試行あたりのヒット確率と平均個別確率
-                const groupHitProb = currentMissRate * (1 - Math.pow(1 - baseHitRate, m));
-                const individualHitProb = m > 0 ? groupHitProb / m : 0;
-
-                // 指定攻撃回数(attackCount)を考慮した最終命中率: 1 - (1 - P_single)^attackCount
-                const finalHitProb = 1 - Math.pow(1 - individualHitProb, attackCount);
-
-                group.forEach(p => {
-                    const ratePercent = Math.round(finalHitProb * 1000) / 10;
-                    rateDetails.push(`${p.name}: ${ratePercent}%`);
-                    playerNames.push(p.name);
-                });
-
-                // 全員外れて次のグループへ到達する確率を更新
-                currentMissRate *= Math.pow(1 - baseHitRate, m);
+            candidates.forEach(p => {
+                const finalProb = hitProbabilities[p.id] || 0;
+                const ratePercent = Math.round(finalProb * 1000) / 10;
+                rateDetails.push(`${p.name}: ${ratePercent}%`);
+                playerNames.push(p.name);
             });
 
             return {
@@ -989,13 +1091,12 @@
             const cardId = selectEl.getAttribute('data-card-id');
             const isDefense = (selectEl.id === 'drop-def-attack-target');
 
-            // 「木の盾セット」のグループ攻撃時は攻撃回数を取得して最終命中率を動的再計算
             if (cardId === 'wood_shield_set' && (selectEl.value === 'EQUAL_OR_HIGHER' || selectEl.value === 'LOWER')) {
                 let countSelect = null;
                 if (isDefense) {
                     countSelect = document.getElementById('drop-def-attack-count');
                 } else {
-                    const instanceId = selectEl.id.replace('drop-target-', '');
+                    const instanceId = selectEl.id.replace(/^drop-target-/, '');
                     countSelect = document.getElementById(`drop-attack-count-${instanceId}`);
                 }
 
@@ -1036,6 +1137,38 @@
             } else {
                 displayEl.innerText = '';
             }
+        }
+
+        function executeDropPlayCard(instanceId, actionTarget) {
+            const targetSelect = document.getElementById(`drop-target-${instanceId}`);
+            const countSelect = document.getElementById(`drop-attack-count-${instanceId}`);
+
+            const targetPlayerId = targetSelect ? targetSelect.value : null;
+            const attackCount = countSelect ? Number(countSelect.value) : 1;
+
+            socket.emit('playCard', {
+                instanceId: instanceId,
+                actionTarget: actionTarget,
+                targetPlayerId: targetPlayerId,
+                attackCount: attackCount
+            });
+
+            closeDropActionModal();
+        }
+
+        function executeDropDefenseAttack() {
+            const targetSelect = document.getElementById('drop-def-attack-target');
+            const countSelect = document.getElementById('drop-def-attack-count');
+
+            const targetPlayerId = targetSelect ? targetSelect.value : null;
+            const attackCount = countSelect ? Number(countSelect.value) : 1;
+
+            socket.emit('playDefenseAsAttack', {
+                targetPlayerId: targetPlayerId,
+                attackCount: attackCount
+            });
+
+            closeDropActionModal();
         }
 
         function openDropCardModal(source, instanceId) {
@@ -1087,9 +1220,9 @@
             }
 
             preview.innerHTML = `
-        ${card.image ? `<img src="${card.image}" style="width:110px; height:160px; object-fit:contain; border-radius:6px; margin:0 auto; display:block;">` : ''}
-        <p style="font-size:0.85em; color:#cbd5e1; margin:8px 0 0 0;">${card.desc}</p>
-    `;
+                ${card.image ? `<img src="${card.image}" style="width:110px; height:160px; object-fit:contain; border-radius:6px; margin:0 auto; display:block;">` : ''}
+                <p style="font-size:0.85em; color:#cbd5e1; margin:8px 0 0 0;">${card.desc}</p>
+            `;
 
             const hasDefense = !!myPlayer.defenseCard;
             let html = '';
@@ -1101,7 +1234,7 @@
                     html += `<button class="btn" style="background:#c0392b; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">大災害を発動する</button>`;
                 } else if (card.id === 'invincible_armor') {
                     html += `<button class="btn" style="background:#f1c40f; color:#000; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">無敵アーマーを使用する</button>`;
-                } else if (card.id === 'dark_matter') { // ★追加
+                } else if (card.id === 'dark_matter') {
                     html += `<button class="btn" style="background:#8e44ad; color:#fff; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">ダークマターを使用する</button>`;
                 } else {
                     const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
@@ -1186,11 +1319,9 @@
                         }
                         html += `<button class="btn" disabled style="background:#7f8c8d; margin-top:5px; width:100%; cursor:not-allowed;">攻撃実行</button>`;
                     } else {
-                        // 対象セレクトボックスに data-card-id を付与
                         html += `対象: <select id="drop-target-${card.instanceId}" data-card-id="${card.id}" onchange="updateHitRateDisplay(this)">${targetOptionsHtml}</select><br>`;
                         html += `<div id="hit-rate-info" style="font-size:0.85em; margin-top:4px; min-height:1.2em;"></div>`;
                         if (card.id === 'wood_shield_set') {
-                            // 回数セレクトボックス変更時に updateHitRateDisplay を呼び出し
                             html += `回数: <select id="drop-attack-count-${card.instanceId}" onchange="updateHitRateDisplay(document.getElementById('drop-target-${card.instanceId}'))">`;
                             for (let i = 1; i <= usesLeft; i++) {
                                 html += `<option value="${i}">${i}回</option>`;
@@ -1243,6 +1374,7 @@
                         targetOptionsHtml += `<option value="LOWER" data-hitrate="${rateDetailStr}">下位全員 (${groupStr})</option>`;
                     }
                 }
+
                 html += `<div style="background:#1a252f; padding:10px; border-radius:6px; margin-bottom:10px; text-align:left;">`;
                 html += `<b style="color:#e74c3c;">⚔ 防御を外して攻撃:</b><br>`;
 
@@ -1259,57 +1391,29 @@
                     }
                     html += `<button class="btn" disabled style="background:#7f8c8d; margin-top:5px; width:100%; cursor:not-allowed;">攻撃実行</button>`;
                 } else {
-                    // 対象セレクトボックスに data-card-id を付与
                     html += `対象: <select id="drop-def-attack-target" data-card-id="${card.id}" onchange="updateHitRateDisplay(this)">${targetOptionsHtml}</select><br>`;
                     html += `<div id="hit-rate-info" style="font-size:0.85em; margin-top:4px; min-height:1.2em;"></div>`;
                     if (card.id === 'wood_shield_set') {
-                        // 回数セレクトボックス変更時に updateHitRateDisplay を呼び出し
                         html += `回数: <select id="drop-def-attack-count" onchange="updateHitRateDisplay(document.getElementById('drop-def-attack-target'))">`;
                         for (let i = 1; i <= usesLeft; i++) {
                             html += `<option value="${i}">${i}回</option>`;
                         }
                         html += `</select><br>`;
-                    } html += `<button class="btn" style="background:#e74c3c; margin-top:5px; width:100%;" onclick="executeDropDefenseAttack()">攻撃する</button>`;
+                    }
+                    html += `<button class="btn" style="background:#e74c3c; margin-top:5px; width:100%;" onclick="executeDropDefenseAttack()">攻撃実行</button>`;
                 }
                 html += `</div>`;
 
-                html += `<button class="btn" style="background:#c0392b; width:100%;" onclick="socket.emit('discardDefense'); closeDropActionModal();">防御カードを破棄</button>`;
+                html += `<button class="btn" style="background:#c0392b; width:100%;" onclick="socket.emit('discardDefense'); closeDropActionModal();">セット解除（破棄）</button>`;
             }
 
             actions.innerHTML = html;
-            modal.style.display = 'block';
+            modal.style.display = 'flex';
 
-            const targetSelect = document.getElementById(`drop-target-${card.instanceId}`) || document.getElementById('drop-def-attack-target');
-            if (targetSelect && !targetSelect.disabled) {
-                updateHitRateDisplay(targetSelect);
+            const firstTargetSelect = actions.querySelector('select[data-card-id]');
+            if (firstTargetSelect) {
+                updateHitRateDisplay(firstTargetSelect);
             }
-        }
-
-        function executeDropPlayCard(instanceId, actionTarget) {
-            let targetPlayerId = null;
-            let attackCount = 1;
-
-            if (actionTarget === 'ATTACK') {
-                const targetSelect = document.getElementById(`drop-target-${instanceId}`);
-                if (targetSelect) targetPlayerId = targetSelect.value;
-                const countSelect = document.getElementById(`drop-attack-count-${instanceId}`);
-                if (countSelect) attackCount = countSelect.value;
-            }
-
-            socket.emit('playCard', { instanceId, actionTarget, targetPlayerId, attackCount });
-            closeDropActionModal();
-        }
-
-        function executeDropDefenseAttack() {
-            const targetSelect = document.getElementById('drop-def-attack-target');
-            if (!targetSelect) return;
-
-            const targetPlayerId = targetSelect.value;
-            const countSelect = document.getElementById('drop-def-attack-count');
-            const attackCount = countSelect ? countSelect.value : 1;
-
-            socket.emit('playDefenseAsAttack', { targetPlayerId, attackCount });
-            closeDropActionModal();
         }
     </script>
 </body>

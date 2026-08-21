@@ -110,6 +110,9 @@ function getRandomAvailableCard(player) {
     };
 }
 
+// --- サーバー側に状態変数を追加 ---
+let skipBonusModal = true; // 初期値: ON
+
 io.on('connection', (socket) => {
     console.log('接続:', socket.id);
     const playerKeys = Object.keys(gameState.players);
@@ -193,6 +196,16 @@ io.on('connection', (socket) => {
             if (gameState.draft.timer) clearTimeout(gameState.draft.timer);
             resolveDraft();
         }
+    });
+
+    // ★追加: 接続時に現在のモーダルスキップ設定を送信
+    socket.emit('updateBonusSkipSetting', skipBonusModal);
+
+    // ★追加: 誰かがスキップ設定を切り替えた際の同期イベント
+    socket.on('toggleBonusSkipSetting', (enabled) => {
+        skipBonusModal = enabled;
+        // 全プレイヤー（送信者含む）に新しい設定を一括同期
+        io.emit('updateBonusSkipSetting', skipBonusModal);
     });
 
     socket.on('chooseBonus', (acceptBonus) => {
@@ -1057,12 +1070,13 @@ function executeDisasterAttack(casterSocketId) {
     }, 2000);
 }
 
+// --- ダークマターの使用時処理 ---
 function executeDarkMatter(casterSocketId) {
     const player = gameState.players[casterSocketId];
     if (!player) return;
 
-    // 1. 無敵状態の付与（次の自分のターン開始時まで＝他プレイヤー3人分＋自身のターン遷移で計4ターン設定）
-    player.invincibleTurns = 4;
+    // 1. 無敵状態の付与（次の自分のターン開始時まで）
+    player.invincibleTurns = 1;
     player.invincibleSource = 'DARK_MATTER';
 
     // 2. 自身の得点加算 (+5000点)
@@ -1071,15 +1085,13 @@ function executeDarkMatter(casterSocketId) {
     const newMyScore = player.score;
 
     const penalizedNames = [];
-
-    // ★追加: 1巡目の順番チェック用の位置インデックスを取得
     const myOrderIndex = gameState.turnOrder.indexOf(casterSocketId);
 
-    // 3. 相手へのペナルティ（手札・防御カード破棄 ＆ -3000点）
+    // 3. 相手へのペナルティ判定
     Object.values(gameState.players).forEach(opponent => {
         if (opponent.id === player.id) return;
 
-        // ★追加: 1巡目において、使用者より後に行動するプレイヤーは対象から除外
+        // 1巡目において、使用者より後に行動するプレイヤーは対象から除外
         if (gameState.round === 1) {
             const opponentOrderIndex = gameState.turnOrder.indexOf(opponent.id);
             if (opponentOrderIndex > myOrderIndex) return;
@@ -1092,33 +1104,37 @@ function executeDarkMatter(casterSocketId) {
 
         // 条件A： カード使用前に自分と同点だった相手
         const isConditionA = (opponent.score === prevMyScore);
-        // 条件B： カード使用後に自分に追いつかれた・逆転された相手 (使用前は自分より高く、使用後に自分が同点以上)
+        // 条件B： カード使用後に自分に追いつかれた・逆転された相手
         const isConditionB = (opponent.score > prevMyScore && newMyScore >= opponent.score);
 
         if (isConditionA || isConditionB) {
-            // 手札・防御カードをすべて破棄
-            opponent.hand = [];
-            opponent.defenseCard = null;
+            // ★個別で 1/2 (50%) の確率判定
+            const isSuccess = Math.random() < 0.5;
 
-            // 得点を -3000点
-            applyScoreChange(opponent, -3000);
+            if (isSuccess) {
+                // 成功時 (50%)： 手札＆防御カード破棄、-3000点、選択不可状態(2ターン)付与
+                opponent.hand = [];
+                opponent.defenseCard = null;
+                applyScoreChange(opponent, -3000);
+                opponent.immunityCount = 2;
 
-            // 4. 「選択不可状態」の付与 (2ターン対象外)
-            opponent.immunityCount = 2;
-
-            penalizedNames.push(`P${opponent.number}`);
+                penalizedNames.push(`P${opponent.number}(成功)`);
+            } else {
+                // 失敗時 (50%)： ペナルティ不発
+                penalizedNames.push(`P${opponent.number}(不発)`);
+            }
         }
     });
 
     let logMsg = `P${player.number} が「ダークマター」を使用！ 無敵状態になり、+5000点獲得！`;
     if (penalizedNames.length > 0) {
-        logMsg += ` 対象となった ${penalizedNames.join(', ')} の手札・防御カードを全破棄し、-3000点＆選択不可状態を付与！`;
+        logMsg += ` 対象結果: ${penalizedNames.join(', ')}`;
     }
 
-    // 全プレイヤーにログと画面更新を通知
     broadcastGameState(logMsg);
 }
 
+// --- 無敵アーマーの解除時処理 ---
 function handleInvincibleArmorExpire(player) {
     const prevScore = player.score;
 
@@ -1129,36 +1145,39 @@ function handleInvincibleArmorExpire(player) {
     let logMsg = `P${player.number} の「無敵アーマー」が解除され、+1000点獲得！`;
     const penalizedNames = [];
 
-    // 2. 条件判定と逆転ペナルティ（選択不可状態の相手は対象外）
+    // 2. 条件判定とペナルティ処理
     Object.values(gameState.players).forEach(opponent => {
         if (opponent.id === player.id) return;
 
         // 「選択不可状態」の相手は対象外
         if (opponent.immunityCount && opponent.immunityCount > 0) return;
 
-        // 【修正箇所】解除前に「同点以下（<=）」で、加算により同点以上になったかを判定
+        // 解除前に「同点以下（<=）」で、加算により同点以上になったかを判定
         if (prevScore <= opponent.score && newScore >= opponent.score) {
-            // 手札と防御カードをすべて破棄
-            opponent.hand = [];
-            opponent.defenseCard = null;
+            // ★個別で 1/2 (50%) の確率判定
+            const isSuccess = Math.random() < 0.5;
 
-            // 対象の得点を -3000点
-            applyScoreChange(opponent, -3000);
+            if (isSuccess) {
+                // 成功時 (50%)： 手札＆防御カード破棄、-3000点、選択不可状態(2ターン)付与
+                opponent.hand = [];
+                opponent.defenseCard = null;
+                applyScoreChange(opponent, -3000);
+                opponent.immunityCount = 2;
 
-            // 3. 「選択不可状態」の付与 (2ターン対象外)
-            opponent.immunityCount = 2;
-
-            penalizedNames.push(`P${opponent.number}`);
+                penalizedNames.push(`P${opponent.number}(成功)`);
+            } else {
+                // 失敗時 (50%)： ペナルティ不発
+                penalizedNames.push(`P${opponent.number}(不発)`);
+            }
         }
     });
 
     if (penalizedNames.length > 0) {
-        logMsg += ` 解除前に同点・追いつかれた・逆転された ${penalizedNames.join(', ')} の手札・防御カードを破棄し、-3000点＆選択不可状態を付与！`;
+        logMsg += ` ペナルティ判定結果: ${penalizedNames.join(', ')}`;
     }
 
     broadcastGameState(logMsg);
 }
-
 function skipDraftAndStartGame() {
     gameState.draft.phase = 'FINISHED';
     const scoreMap = { 1: 5000, 2: 1000, 3: -1000, 4: -5000 };
@@ -1249,6 +1268,12 @@ function startPlayerTurn() {
     gameState.turnPhase = 'BONUS_CHOICE';
     const currentPlayer = gameState.players[gameState.currentTurnPlayerId];
 
+    // 次の自分のターン開始時にダークマターの無敵状態を解除
+    if (currentPlayer && currentPlayer.invincibleSource === 'DARK_MATTER') {
+        currentPlayer.invincibleTurns = 0;
+        currentPlayer.invincibleSource = null;
+    }
+
     let logMsg = `第 ${gameState.round} 巡目: P${currentPlayer.number} のターンが始まりました。`;
     broadcastGameState(logMsg);
 }
@@ -1264,9 +1289,9 @@ function proceedToNextTurn() {
     const expiredInvinciblePlayers = [];
 
     Object.values(gameState.players).forEach(p => {
-        if (p.invincibleTurns && p.invincibleTurns > 0) {
+        // 無敵アーマー(ARMOR)のみ毎ターン減算処理を行う
+        if (p.invincibleTurns && p.invincibleTurns > 0 && p.invincibleSource === 'ARMOR') {
             p.invincibleTurns -= 1;
-            // 1から0へ減少（無敵状態が解除）したタイミングを検知
             if (p.invincibleTurns === 0) {
                 expiredInvinciblePlayers.push(p);
             }
