@@ -150,38 +150,26 @@ function broadcastGameState(customLog = '') {
 }
 
 function skipDraftAndStartGame() {
-    const scores = [5000, 1000, -1000, -5000];
     const playerIds = Object.keys(gameState.players);
 
-    for (let i = scores.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [scores[i], scores[j]] = [scores[j], scores[i]];
-    }
-
-    playerIds.forEach((id, idx) => {
+    playerIds.forEach((id) => {
         const p = gameState.players[id];
-        p.score = 25000 + scores[idx];
-        p.prevScore = 25000 + scores[idx];
+        p.score = 25000;
+        p.prevScore = 25000;
         p.scoreChange = 0;
         p.draftResolved = true;
     });
 
     gameState.started = true;
     gameState.draft.phase = 'FINISHED';
-
-    const shuffled = [...playerIds];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-
-    gameState.turnOrder = shuffled;
-    gameState.currentTurnPlayerId = shuffled[0];
-    gameState.actedPlayerIds = [];
     gameState.round = 1;
+    gameState.actedPlayerIds = [];
+
+    // 最初のプレイヤーを決定
+    gameState.currentTurnPlayerId = getNextPlayerId();
     gameState.turnPhase = 'BONUS_CHOICE';
 
-    broadcastGameState('ドラフト完了！ゲームを開始します。');
+    broadcastGameState('ゲームを開始します。');
 }
 
 function resolveDraft() {
@@ -249,18 +237,72 @@ function resolveDraft() {
     }
 }
 
+/**
+ * 次の行動プレイヤーを決定するロジック
+ * 
+ * 基本ルール:
+ *  - 「その時点での得点が高い順」で動的に決定（同点の場合はランダム）
+ *  - その巡目（1巡）ですでに行動済みのプレイヤー (actedPlayerIds) は候補から除外
+ * Exception (1巡目のみ):
+ *  - 1巡目かつ全員が同点の場合に限り P1 → P2 → P3 → P4 の固定順で進行
+ */
+function getNextPlayerId() {
+    const allPlayers = Object.values(gameState.players);
+
+    // まだ行動していないプレイヤーを抽出
+    const unactedPlayers = allPlayers.filter(p => !gameState.actedPlayerIds.includes(p.id));
+    if (unactedPlayers.length === 0) return null;
+
+    // --- 1巡目かつ全員同点の場合の例外判定 ---
+    if (gameState.round === 1) {
+        const firstScore = allPlayers[0].score;
+        const isAllEqualScore = allPlayers.every(p => p.score === firstScore);
+
+        if (isAllEqualScore) {
+            // P1 -> P2 -> P3 -> P4 (number昇順) で最初に行動していないプレイヤーを返す
+            const sortedByNumber = [...unactedPlayers].sort((a, b) => a.number - b.number);
+            return sortedByNumber[0].id;
+        }
+    }
+
+    // --- 基本ルール（動的な順番決定）---
+    // 得点の降順（高い順）でソート
+    unactedPlayers.sort((a, b) => b.score - a.score);
+
+    // 最高得点を取得
+    const highestScore = unactedPlayers[0].score;
+
+    // 最高得点を持つプレイヤー群（同点者）を抽出
+    const topCandidates = unactedPlayers.filter(p => p.score === highestScore);
+
+    if (topCandidates.length === 1) {
+        // 同点者がいなければ最高得点者が行動
+        return topCandidates[0].id;
+    } else {
+        // 同点の場合はランダムで1人選択
+        const randomIndex = Math.floor(Math.random() * topCandidates.length);
+        return topCandidates[randomIndex].id;
+    }
+}
+
+/**
+ * ターン進行処理関数 (書き換え版)
+ */
 function proceedToNextTurn() {
     resetScoreChanges();
 
+    // 現在のプレイヤーを行動済みリストに追加
     const currId = gameState.currentTurnPlayerId;
-    if (!gameState.actedPlayerIds.includes(currId)) {
+    if (currId && !gameState.actedPlayerIds.includes(currId)) {
         gameState.actedPlayerIds.push(currId);
     }
 
-    if (gameState.actedPlayerIds.length >= gameState.turnOrder.length) {
+    // 全員が行動完了した場合は次の巡目へ
+    if (gameState.actedPlayerIds.length >= Object.keys(gameState.players).length) {
         gameState.round += 1;
-        gameState.actedPlayerIds = [];
+        gameState.actedPlayerIds = []; // 巡目リセット
 
+        // 各種ターン経過バフ・デバフの更新
         Object.values(gameState.players).forEach(p => {
             if (p.immunityCount > 0) p.immunityCount -= 1;
             if (p.invincibleTurns > 0) p.invincibleTurns -= 1;
@@ -279,12 +321,9 @@ function proceedToNextTurn() {
         }
     }
 
-    let nextIndex = gameState.turnOrder.indexOf(currId) + 1;
-    if (nextIndex >= gameState.turnOrder.length) {
-        nextIndex = 0;
-    }
-
-    gameState.currentTurnPlayerId = gameState.turnOrder[nextIndex];
+    // 次に動くプレイヤーを動的ロジックで決定
+    const nextPlayerId = getNextPlayerId();
+    gameState.currentTurnPlayerId = nextPlayerId;
     gameState.turnPhase = 'BONUS_CHOICE';
 
     broadcastGameState(`P${gameState.players[gameState.currentTurnPlayerId].number} のターンになりました。`);
