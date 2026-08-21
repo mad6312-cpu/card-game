@@ -57,6 +57,13 @@ const CARD_DECK = [
         category: 'SPECIAL',
         image: '/images/dark_matter.png',
         desc: '特殊: 次の自分ターンまで無敵状態付与＆+5000点。使用前と同点、または使用後に追いついた/逆転した相手(無敵・選択不可除く)の手札・防御カード全破棄＆-3000点＆選択不可(2ターン)付与。'
+    },
+    {
+        id: 'steroid',
+        name: 'ステロイド',
+        category: 'SPECIAL',
+        image: '/images/steroid.png',
+        desc: '特殊: 使用から4ターン「ステロイド状態」になる。解除時に+1000点。解除時に自分と同点、または追いついた/逆転した相手(無敵・ステロイド・選択不可除く)に50%で手札・防御全破棄＆-3000点＆選択不可付与。'
     }
 ];
 
@@ -67,7 +74,8 @@ let cardSettings = {
     wood_shield_set: true,
     disaster: true,
     invincible_armor: true,
-    dark_matter: true // ★追加
+    dark_matter: true,
+    steroid: true
 };
 
 function createInitialState() {
@@ -276,6 +284,7 @@ io.on('connection', (socket) => {
             player.invincibleSource = 'ARMOR'; // ★追加: 無敵ソースの識別
             player.hand.splice(cardIndex, 1);
 
+
             socket.emit('syncGameState', {
                 players: gameState.players,
                 turnOrder: gameState.turnOrder,
@@ -293,9 +302,32 @@ io.on('connection', (socket) => {
                 turnPhase: gameState.turnPhase,
                 log: ''
             });
-        } else if (card.id === 'dark_matter') { // ★追加
+        } else if (card.id === 'dark_matter') {
             player.hand.splice(cardIndex, 1);
             executeDarkMatter(socket.id);
+        } else if (card.id === 'steroid') {
+            player.steroidTurns = 4;
+            player.hand.splice(cardIndex, 1);
+
+            // 自分だけに効果ログを送信（完全非公開仕様）
+            socket.emit('syncGameState', {
+                players: gameState.players,
+                turnOrder: gameState.turnOrder,
+                currentTurnPlayerId: gameState.currentTurnPlayerId,
+                round: gameState.round,
+                turnPhase: gameState.turnPhase,
+                log: `「ステロイド」を使用しました。4ターンの間「ステロイド状態」になります。`
+            });
+
+            // 他のプレイヤーにはログを出力しない
+            socket.broadcast.emit('syncGameState', {
+                players: gameState.players,
+                turnOrder: gameState.turnOrder,
+                currentTurnPlayerId: gameState.currentTurnPlayerId,
+                round: gameState.round,
+                turnPhase: gameState.turnPhase,
+                log: ''
+            });
         } else if (actionTarget === 'ATTACK') {
             if (!targetPlayerId) {
                 socket.emit('errorMessage', '攻撃対象を選択してください。');
@@ -601,6 +633,11 @@ function executeWoodShieldGroupAttack(attackerId, groupType) {
             return;
         }
 
+        // ★追加: ステロイド状態による無効化（攻撃中断して即座に終了）
+        if (target.steroidTurns && target.steroidTurns > 0) {
+            broadcastGameState(logPrefix + `(命中率:${ratePercent}%) 命中！しかし P${target.number} は「ステロイド状態」のため攻撃が無効化されました！（攻撃中断）`);
+            return;
+        }
         // 無敵状態による無効化時：連鎖を中断して即座に終了
         if (target.invincibleTurns && target.invincibleTurns > 0) {
             broadcastGameState(logPrefix + `(命中率:${ratePercent}%) 命中！しかし P${target.number} は「無敵状態」のため攻撃が無効化されました！（攻撃中断）`);
@@ -738,6 +775,13 @@ function executeShieldSetGroupAttack(attackerId, groupType, cardObj, maxAttacks,
             attackCountUsed++;
             cardObj.usesLeft -= 1;
 
+            // ★追加: ステロイド状態による無効化（1回分消費して攻撃中断）
+            if (target.steroidTurns && target.steroidTurns > 0) {
+                broadcastGameState(logPrefix + `(命中率:${ratePercent}%) 命中！しかし P${target.number} は「ステロイド状態」のため攻撃が無効化されました！（攻撃中断）`);
+                onComplete();
+                return;
+            }
+
             // 無敵状態による無効化時：1回分消費した上で処理を即座に終了
             if (target.invincibleTurns && target.invincibleTurns > 0) {
                 broadcastGameState(logPrefix + `(命中率:${ratePercent}%) 命中！しかし P${target.number} は「無敵状態」のため攻撃が無効化されました！（攻撃中断）`);
@@ -782,6 +826,7 @@ function executeStandardAttack(attackerId, targetId, cardId) {
     const attacker = gameState.players[attackerId];
     const target = gameState.players[targetId];
     const cardName = cardId === 'wood_sword' ? '木の剣' : '木の盾';
+    const isSteroid = target.steroidTurns && target.steroidTurns > 0;
     let logPrefix = `P${attacker.number} が P${target.number} に「${cardName}」で攻撃！ `;
 
     let hitRate = 0.5;
@@ -805,6 +850,12 @@ function executeStandardAttack(attackerId, targetId, cardId) {
 
     if (target.invincibleTurns && target.invincibleTurns > 0) {
         broadcastGameState(logPrefix + rateText + `命中！しかし P${target.number} は「無敵状態」のため攻撃が無効化されました！`);
+        return;
+    }
+
+    // ★修正・確認: ステロイド状態による無効化（ログ表記に rateText を追加）
+    if (isSteroid) {
+        broadcastGameState(logPrefix + rateText + `命中！しかし P${target.number} は「ステロイド状態」のため攻撃が無効化されました！`);
         return;
     }
 
@@ -833,6 +884,7 @@ function executeStandardAttack(attackerId, targetId, cardId) {
 
 function executeWoodSwordAttack(attackerId, targetTypeOrId) {
     const attacker = gameState.players[attackerId];
+    const isSteroid = target.steroidTurns && target.steroidTurns > 0;
 
     if (targetTypeOrId === 'ALL_LOWER') {
         const attackedPlayerIds = new Set();
@@ -873,6 +925,12 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
 
             if (target.invincibleTurns && target.invincibleTurns > 0) {
                 broadcastGameState(logPrefix + `命中！しかし P${target.number} は「無敵状態」のため攻撃が無効化されました！`);
+                return;
+            }
+
+            if (isSteroid) {
+                // ステロイド状態は攻撃を無効化
+                broadcastGameState(logPrefix + `命中！しかし P${target.number} は「ステロイド状態」のため攻撃が無効化されました！`);
                 return;
             }
 
@@ -959,6 +1017,7 @@ function executeShieldSetAttack(attackerId, targetId, cardObj, maxAttacks, onCom
     const target = gameState.players[targetId];
 
     const hitRate = getWoodShieldHitRate(attacker.score, target.score);
+    const isSteroid = target.steroidTurns && target.steroidTurns > 0;
 
     // --- 修正箇所: 命中率0%の場合は処理せず終了 ---
     if (hitRate <= 0) {
@@ -991,6 +1050,13 @@ function executeShieldSetAttack(attackerId, targetId, cardObj, maxAttacks, onCom
 
         if (target.invincibleTurns && target.invincibleTurns > 0) {
             broadcastGameState(logPrefix + `(命中率:${ratePercent}%) 命中！しかし P${target.number} は「無敵状態」のため攻撃が無効化されました！`);
+            setTimeout(doNextAttack, 500);
+            return;
+        }
+
+        // ★修正: ステロイド状態による無効化時、次の攻撃回数に進むように調整
+        if (isSteroid) {
+            broadcastGameState(logPrefix + `(命中率:${ratePercent}%) 命中！しかし P${target.number} は「ステロイド状態」のため攻撃が無効化されました！`);
             setTimeout(doNextAttack, 500);
             return;
         }
@@ -1052,7 +1118,16 @@ function executeDisasterAttack(casterSocketId) {
             const damage = damageByRank[rank] || 0;
 
             const isInvincible = player.invincibleTurns && player.invincibleTurns > 0;
+            const isSteroid = player.steroidTurns && player.steroidTurns > 0;
             const isImmune = player.immunityCount && player.immunityCount > 0;
+
+            // ステロイド状態のプレイヤーへの処理
+            if (isSteroid) {
+                // 「大災害」の効果（ダメージ・手札全破棄）自体は受けないが、ステロイド状態は強制解除される
+                player.steroidTurns = 0;
+                // ※「大災害」での強制解除時は解除時処理（得点加算・ペナルティ）をスキップ
+                return;
+            }
 
             if (!isInvincible && !isImmune) {
                 applyScoreChange(player, damage);
@@ -1278,6 +1353,58 @@ function startPlayerTurn() {
     broadcastGameState(logMsg);
 }
 
+// --- ステロイドの正常解除時処理 ---
+function handleSteroidExpire(player) {
+    const prevScore = player.score;
+
+    // 1. 自身の得点加算 (+1000点)
+    applyScoreChange(player, 1000);
+    const newScore = player.score;
+
+    let logMsg = `P${player.number} の「ステロイド状態」が解除され、+1000点獲得！`;
+    const penalizedNames = [];
+
+    // 2. 条件判定とペナルティ処理
+    Object.values(gameState.players).forEach(opponent => {
+        if (opponent.id === player.id) return;
+
+        // 対象が「無敵状態」「ステロイド状態」「選択不可状態」のいずれかである場合は除外
+        const isInvincible = opponent.invincibleTurns && opponent.invincibleTurns > 0;
+        const isSteroid = opponent.steroidTurns && opponent.steroidTurns > 0;
+        const isImmune = opponent.immunityCount && opponent.immunityCount > 0;
+        if (isInvincible || isSteroid || isImmune) return;
+
+        // 条件A: 解除「前」の時点で自分と同点だった相手
+        const isConditionA = (opponent.score === prevScore);
+        // 条件B: 解除「後」に自分に追いつかれた・逆転された相手
+        const isConditionB = (opponent.score > prevScore && newScore >= opponent.score);
+
+        if (isConditionA || isConditionB) {
+            // 独立して 1/2 (50%) の確率判定
+            const isSuccess = Math.random() < 0.5;
+
+            if (isSuccess) {
+                // 成功時 (50%): 手札＆防御カード全破棄、-3000点、選択不可状態(2ターン)付与
+                opponent.hand = [];
+                opponent.defenseCard = null;
+                applyScoreChange(opponent, -3000);
+                opponent.immunityCount = 2;
+
+                penalizedNames.push(`P${opponent.number}(成功)`);
+            } else {
+                // 失敗時 (50%): ペナルティ不発
+                penalizedNames.push(`P${opponent.number}(不発)`);
+            }
+        }
+    });
+
+    if (penalizedNames.length > 0) {
+        logMsg += ` ペナルティ判定結果: ${penalizedNames.join(', ')}`;
+    }
+
+    broadcastGameState(logMsg);
+}
+
 function proceedToNextTurn() {
     const endingPlayerId = gameState.currentTurnPlayerId;
 
@@ -1287,13 +1414,22 @@ function proceedToNextTurn() {
 
     // 無敵状態解除の対象者を格納する配列
     const expiredInvinciblePlayers = [];
+    const expiredSteroidPlayers = [];
 
     Object.values(gameState.players).forEach(p => {
-        // 無敵アーマー(ARMOR)のみ毎ターン減算処理を行う
+        // 無敵アーマー(ARMOR)の減算処理
         if (p.invincibleTurns && p.invincibleTurns > 0 && p.invincibleSource === 'ARMOR') {
             p.invincibleTurns -= 1;
             if (p.invincibleTurns === 0) {
                 expiredInvinciblePlayers.push(p);
+            }
+        }
+
+        // ステロイド状態の減算処理
+        if (p.steroidTurns && p.steroidTurns > 0) {
+            p.steroidTurns -= 1;
+            if (p.steroidTurns === 0) {
+                expiredSteroidPlayers.push(p);
             }
         }
 
@@ -1302,12 +1438,16 @@ function proceedToNextTurn() {
         }
     });
 
-    // proceedToNextTurn 関数内の無敵解除処理部分
     expiredInvinciblePlayers.forEach(p => {
         if (p.invincibleSource === 'ARMOR') {
             handleInvincibleArmorExpire(p);
         }
         p.invincibleSource = null;
+    });
+
+    // ステロイド正常解除処理の実行
+    expiredSteroidPlayers.forEach(p => {
+        handleSteroidExpire(p);
     });
 
     if (gameState.actedPlayerIds.length >= Object.keys(gameState.players).length) {

@@ -546,7 +546,8 @@
             wood_shield_set: '木の盾セット',
             disaster: '大災害',
             invincible_armor: '無敵アーマー',
-            dark_matter: 'ダークマター' // ★追加
+            dark_matter: 'ダークマター',
+            steroid: 'ステロイド' // ★追加
         };
 
         socket.on('connect', () => { myId = socket.id; });
@@ -833,6 +834,10 @@
                         // 無敵アーマー：自分のみ残ターン数を表示
                         statusBadge += `<span style="color:#f1c40f; font-weight:bold; margin-left:5px;">[無敵:${p.invincibleTurns}]</span>`;
                     }
+                }
+                // 「ステロイド状態」バッジ表示制御（自分のみ表示・他プレイヤーには完全非公開）
+                if (p.steroidTurns > 0 && isMe) {
+                    statusBadge += `<span style="color:#e67e22; font-weight:bold; margin-left:5px;">[ステロイド:${p.steroidTurns}]</span>`;
                 }
                 box.innerHTML = `
                     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -1236,6 +1241,8 @@
                     html += `<button class="btn" style="background:#f1c40f; color:#000; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">無敵アーマーを使用する</button>`;
                 } else if (card.id === 'dark_matter') {
                     html += `<button class="btn" style="background:#8e44ad; color:#fff; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">ダークマターを使用する</button>`;
+                } else if (card.id === 'steroid') {
+                    html += `<button class="btn" style="background:#e67e22; color:#fff; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">ステロイドを使用する</button>`;
                 } else {
                     const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
                     let targetOptionsHtml = '';
