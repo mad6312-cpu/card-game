@@ -64,6 +64,13 @@ const CARD_DECK = [
         category: 'SPECIAL',
         image: '/images/steroid.png',
         desc: '特殊: 使用から4ターン「ステロイド状態」になる。解除時に+1000点。解除時に自分と同点、または追いついた/逆転した相手(無敵・ステロイド・選択不可除く)に50%で手札・防御全破棄＆-3000点＆選択不可付与。'
+    },
+    {
+        id: 'smoke_screen',
+        name: '煙幕',
+        category: 'ATTACK',
+        image: '/images/smoke_screen.png',
+        desc: '自分以上の得点を持つ相手全員に-1000点＆暗闇状態(1ターン)を付与。該当者がいない場合は自分自身に-1000点＆暗闇状態(2ターン)を付与。'
     }
 ];
 
@@ -75,7 +82,8 @@ let cardSettings = {
     disaster: true,
     invincible_armor: true,
     dark_matter: true,
-    steroid: true
+    steroid: true,
+    smoke_screen: true
 };
 
 function createInitialState() {
@@ -98,6 +106,18 @@ function createInitialState() {
 
 let gameState = createInitialState();
 
+function resetScoreChanges() {
+    Object.values(gameState.players).forEach(p => {
+        p.scoreChange = 0;
+    });
+}
+
+function applyScoreChange(player, amount) {
+    player.prevScore = player.score;
+    player.scoreChange = amount;
+    player.score += amount;
+}
+
 function getRandomAvailableCard(player) {
     let availableCards = CARD_DECK.filter(c => cardSettings[c.id] !== false);
 
@@ -118,8 +138,159 @@ function getRandomAvailableCard(player) {
     };
 }
 
-// --- サーバー側に状態変数を追加 ---
-let skipBonusModal = true; // 初期値: ON
+function broadcastGameState(customLog = '') {
+    io.emit('syncGameState', {
+        players: gameState.players,
+        turnOrder: gameState.turnOrder,
+        currentTurnPlayerId: gameState.currentTurnPlayerId,
+        round: gameState.round,
+        turnPhase: gameState.turnPhase,
+        log: customLog
+    });
+}
+
+function skipDraftAndStartGame() {
+    const scores = [5000, 1000, -1000, -5000];
+    const playerIds = Object.keys(gameState.players);
+
+    for (let i = scores.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [scores[i], scores[j]] = [scores[j], scores[i]];
+    }
+
+    playerIds.forEach((id, idx) => {
+        const p = gameState.players[id];
+        p.score = 25000 + scores[idx];
+        p.prevScore = 25000 + scores[idx];
+        p.scoreChange = 0;
+        p.draftResolved = true;
+    });
+
+    gameState.started = true;
+    gameState.draft.phase = 'FINISHED';
+
+    const shuffled = [...playerIds];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
+    gameState.turnOrder = shuffled;
+    gameState.currentTurnPlayerId = shuffled[0];
+    gameState.actedPlayerIds = [];
+    gameState.round = 1;
+    gameState.turnPhase = 'BONUS_CHOICE';
+
+    broadcastGameState('ドラフト完了！ゲームを開始します。');
+}
+
+function resolveDraft() {
+    const unresolvedIds = Object.keys(gameState.players).filter(id => !gameState.players[id].draftResolved);
+    const chosenMap = {};
+    const conflicts = {};
+
+    unresolvedIds.forEach(id => {
+        const val = gameState.draft.choices[id];
+        if (!chosenMap[val]) chosenMap[val] = [];
+        chosenMap[val].push(id);
+    });
+
+    Object.keys(chosenMap).forEach(score => {
+        if (chosenMap[score].length > 1) {
+            conflicts[score] = chosenMap[score];
+        }
+    });
+
+    if (Object.keys(conflicts).length > 0) {
+        Object.keys(chosenMap).forEach(score => {
+            if (chosenMap[score].length === 1) {
+                const winnerId = chosenMap[score][0];
+                const p = gameState.players[winnerId];
+                p.score += Number(score);
+                p.prevScore = p.score;
+                p.draftResolved = true;
+
+                const idx = gameState.draft.availableScores.indexOf(Number(score));
+                if (idx !== -1) gameState.draft.availableScores.splice(idx, 1);
+            }
+        });
+
+        const newUnresolved = Object.keys(gameState.players).filter(id => !gameState.players[id].draftResolved);
+        io.emit('draftConflict', {
+            unresolvedIds: newUnresolved,
+            availableScores: gameState.draft.availableScores,
+            players: gameState.players
+        });
+    } else {
+        unresolvedIds.forEach(id => {
+            const score = gameState.draft.choices[id];
+            const p = gameState.players[id];
+            p.score += Number(score);
+            p.prevScore = p.score;
+            p.draftResolved = true;
+        });
+
+        gameState.started = true;
+        gameState.draft.phase = 'FINISHED';
+
+        const playerIds = Object.keys(gameState.players);
+        for (let i = playerIds.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [playerIds[i], playerIds[j]] = [playerIds[j], playerIds[i]];
+        }
+
+        gameState.turnOrder = playerIds;
+        gameState.currentTurnPlayerId = playerIds[0];
+        gameState.actedPlayerIds = [];
+        gameState.round = 1;
+        gameState.turnPhase = 'BONUS_CHOICE';
+
+        broadcastGameState('ドラフト完了！ゲームを開始します。');
+    }
+}
+
+function proceedToNextTurn() {
+    resetScoreChanges();
+
+    const currId = gameState.currentTurnPlayerId;
+    if (!gameState.actedPlayerIds.includes(currId)) {
+        gameState.actedPlayerIds.push(currId);
+    }
+
+    if (gameState.actedPlayerIds.length >= gameState.turnOrder.length) {
+        gameState.round += 1;
+        gameState.actedPlayerIds = [];
+
+        Object.values(gameState.players).forEach(p => {
+            if (p.immunityCount > 0) p.immunityCount -= 1;
+            if (p.invincibleTurns > 0) p.invincibleTurns -= 1;
+            if (p.darknessTurns > 0) p.darknessTurns -= 1;
+            if (p.steroidTurns > 0) {
+                p.steroidTurns -= 1;
+                if (p.steroidTurns === 0) {
+                    applyScoreChange(p, 1000);
+                }
+            }
+        });
+
+        if (gameState.round > 10) {
+            broadcastGameState('全10巡が終了しました！ゲーム終了！');
+            return;
+        }
+    }
+
+    let nextIndex = gameState.turnOrder.indexOf(currId) + 1;
+    if (nextIndex >= gameState.turnOrder.length) {
+        nextIndex = 0;
+    }
+
+    gameState.currentTurnPlayerId = gameState.turnOrder[nextIndex];
+    gameState.turnPhase = 'BONUS_CHOICE';
+
+    broadcastGameState(`P${gameState.players[gameState.currentTurnPlayerId].number} のターンになりました。`);
+}
+
+let skipBonusModal = true;
 
 io.on('connection', (socket) => {
     console.log('接続:', socket.id);
@@ -138,7 +309,8 @@ io.on('connection', (socket) => {
             defenseCard: null,
             draftResolved: false,
             immunityCount: 0,
-            invincibleTurns: 0
+            invincibleTurns: 0,
+            darknessTurns: 0
         };
 
         socket.emit('init', { playerNumber: pNum, id: socket.id });
@@ -177,7 +349,6 @@ io.on('connection', (socket) => {
 
         resetScoreChanges();
 
-        // 制限を無視して山札からカードを1枚引く
         const randomCard = getRandomAvailableCard(target);
         target.hand.push(randomCard);
 
@@ -206,13 +377,10 @@ io.on('connection', (socket) => {
         }
     });
 
-    // ★追加: 接続時に現在のモーダルスキップ設定を送信
     socket.emit('updateBonusSkipSetting', skipBonusModal);
 
-    // ★追加: 誰かがスキップ設定を切り替えた際の同期イベント
     socket.on('toggleBonusSkipSetting', (enabled) => {
         skipBonusModal = enabled;
-        // 全プレイヤー（送信者含む）に新しい設定を一括同期
         io.emit('updateBonusSkipSetting', skipBonusModal);
     });
 
@@ -281,9 +449,8 @@ io.on('connection', (socket) => {
             executeDisasterAttack(socket.id);
         } else if (card.id === 'invincible_armor') {
             player.invincibleTurns = 4;
-            player.invincibleSource = 'ARMOR'; // ★追加: 無敵ソースの識別
+            player.invincibleSource = 'ARMOR';
             player.hand.splice(cardIndex, 1);
-
 
             socket.emit('syncGameState', {
                 players: gameState.players,
@@ -309,7 +476,6 @@ io.on('connection', (socket) => {
             player.steroidTurns = 4;
             player.hand.splice(cardIndex, 1);
 
-            // 自分だけに効果ログを送信（完全非公開仕様）
             socket.emit('syncGameState', {
                 players: gameState.players,
                 turnOrder: gameState.turnOrder,
@@ -319,7 +485,6 @@ io.on('connection', (socket) => {
                 log: `「ステロイド」を使用しました。4ターンの間「ステロイド状態」になります。`
             });
 
-            // 他のプレイヤーにはログを出力しない
             socket.broadcast.emit('syncGameState', {
                 players: gameState.players,
                 turnOrder: gameState.turnOrder,
@@ -328,6 +493,9 @@ io.on('connection', (socket) => {
                 turnPhase: gameState.turnPhase,
                 log: ''
             });
+        } else if (card.id === 'smoke_screen') {
+            player.hand.splice(cardIndex, 1);
+            executeSmokeScreen(socket.id);
         } else if (actionTarget === 'ATTACK') {
             if (!targetPlayerId) {
                 socket.emit('errorMessage', '攻撃対象を選択してください。');
@@ -614,9 +782,11 @@ function executeWoodShieldGroupAttack(attackerId, groupType) {
             return;
         }
 
-        const hitRate = getWoodShieldHitRate(attacker.score, target.score);
+        let hitRate = getWoodShieldHitRate(attacker.score, target.score);
+        if (attacker.darknessTurns && attacker.darknessTurns > 0) {
+            hitRate = hitRate * 0.5;
+        }
 
-        // --- 修正箇所: 命中率0%の場合は処理およびログ出力をスキップ ---
         if (hitRate <= 0) {
             processQueue(index + 1);
             return;
@@ -633,12 +803,10 @@ function executeWoodShieldGroupAttack(attackerId, groupType) {
             return;
         }
 
-        // ★追加: ステロイド状態による無効化（攻撃中断して即座に終了）
         if (target.steroidTurns && target.steroidTurns > 0) {
             broadcastGameState(logPrefix + `(命中率:${ratePercent}%) 命中！しかし P${target.number} は「ステロイド状態」のため攻撃が無効化されました！（攻撃中断）`);
             return;
         }
-        // 無敵状態による無効化時：連鎖を中断して即座に終了
         if (target.invincibleTurns && target.invincibleTurns > 0) {
             broadcastGameState(logPrefix + `(命中率:${ratePercent}%) 命中！しかし P${target.number} は「無敵状態」のため攻撃が無効化されました！（攻撃中断）`);
             return;
@@ -680,7 +848,6 @@ function executeShieldSetGroupAttack(attackerId, groupType, cardObj, maxAttacks,
     const myScore = attacker.score;
     const myOrderIndex = gameState.turnOrder.indexOf(attackerId);
 
-    // 攻撃対象の抽出
     function getCandidates() {
         return Object.values(gameState.players).filter(p => {
             if (p.id === attackerId) return false;
@@ -700,17 +867,14 @@ function executeShieldSetGroupAttack(attackerId, groupType, cardObj, maxAttacks,
 
     let attackCountUsed = 0;
 
-    // グループ攻撃の1回分を開始する関数
     function startSingleGroupAttack() {
         const candidates = getCandidates();
 
-        // 攻撃可能対象がいない、指定回数上限に達した、またはカードの耐久が尽きた場合は終了
         if (candidates.length === 0 || attackCountUsed >= maxAttacks || cardObj.usesLeft <= 0) {
             onComplete();
             return;
         }
 
-        // 点差（絶対値）順に並び替え（同点差内はシャッフル）
         const grouped = {};
         candidates.forEach(p => {
             const diff = Math.abs(myScore - p.score);
@@ -730,17 +894,13 @@ function executeShieldSetGroupAttack(attackerId, groupType, cardObj, maxAttacks,
             attackQueue.push(...group);
         });
 
-        // 判定キューを順に処理
         function processQueue(index) {
-            // 全員に外れた場合（キューを最後まで消化）
             if (index >= attackQueue.length) {
-                // 全ミスでも1回分の攻撃指定回数およびカード耐久を1消費
                 attackCountUsed++;
                 cardObj.usesLeft -= 1;
 
                 broadcastGameState(`P${attacker.number} の「木の盾セット」グループ攻撃は全員に外れました。（消費回数: ${attackCountUsed}/${maxAttacks}）`);
 
-                // 残り回数と対象が存在すれば、点差が一番近い順から再攻撃（連鎖処理）
                 setTimeout(() => {
                     startSingleGroupAttack();
                 }, 500);
@@ -753,8 +913,10 @@ function executeShieldSetGroupAttack(attackerId, groupType, cardObj, maxAttacks,
                 return;
             }
 
-            const hitRate = getWoodShieldHitRate(attacker.score, target.score);
-
+            let hitRate = getWoodShieldHitRate(attacker.score, target.score);
+            if (attacker.darknessTurns && attacker.darknessTurns > 0) {
+                hitRate = hitRate * 0.5;
+            }
             if (hitRate <= 0) {
                 processQueue(index + 1);
                 return;
@@ -771,18 +933,15 @@ function executeShieldSetGroupAttack(attackerId, groupType, cardObj, maxAttacks,
                 return;
             }
 
-            // ヒット時の回数・カード耐久消費
             attackCountUsed++;
             cardObj.usesLeft -= 1;
 
-            // ★追加: ステロイド状態による無効化（1回分消費して攻撃中断）
             if (target.steroidTurns && target.steroidTurns > 0) {
                 broadcastGameState(logPrefix + `(命中率:${ratePercent}%) 命中！しかし P${target.number} は「ステロイド状態」のため攻撃が無効化されました！（攻撃中断）`);
                 onComplete();
                 return;
             }
 
-            // 無敵状態による無効化時：1回分消費した上で処理を即座に終了
             if (target.invincibleTurns && target.invincibleTurns > 0) {
                 broadcastGameState(logPrefix + `(命中率:${ratePercent}%) 命中！しかし P${target.number} は「無敵状態」のため攻撃が無効化されました！（攻撃中断）`);
                 onComplete();
@@ -812,7 +971,6 @@ function executeShieldSetGroupAttack(attackerId, groupType, cardObj, maxAttacks,
             target.immunityCount = 2;
             broadcastGameState(logPrefix + `(命中率:${ratePercent}%) 命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました)`);
 
-            // ヒット後、残りの攻撃回数があれば次の回数分の攻撃へ
             setTimeout(() => startSingleGroupAttack(), 500);
         }
 
@@ -833,8 +991,10 @@ function executeStandardAttack(attackerId, targetId, cardId) {
     if (cardId === 'wood_shield') {
         hitRate = getWoodShieldHitRate(attacker.score, target.score);
     }
+    if (attacker.darknessTurns && attacker.darknessTurns > 0) {
+        hitRate = hitRate * 0.5;
+    }
 
-    // --- 修正箇所: 命中率0%の場合は処理およびログ出力をスキップ ---
     if (hitRate <= 0) {
         return;
     }
@@ -853,7 +1013,6 @@ function executeStandardAttack(attackerId, targetId, cardId) {
         return;
     }
 
-    // ★修正・確認: ステロイド状態による無効化（ログ表記に rateText を追加）
     if (isSteroid) {
         broadcastGameState(logPrefix + rateText + `命中！しかし P${target.number} は「ステロイド状態」のため攻撃が無効化されました！`);
         return;
@@ -884,7 +1043,7 @@ function executeStandardAttack(attackerId, targetId, cardId) {
 
 function executeWoodSwordAttack(attackerId, targetTypeOrId) {
     const attacker = gameState.players[attackerId];
-    const isSteroid = target.steroidTurns && target.steroidTurns > 0;
+    if (!attacker) return;
 
     if (targetTypeOrId === 'ALL_LOWER') {
         const attackedPlayerIds = new Set();
@@ -913,12 +1072,17 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
             const target = topGroup[Math.floor(Math.random() * topGroup.length)];
             attackedPlayerIds.add(target.id);
 
+            const isSteroid = target.steroidTurns && target.steroidTurns > 0;
             let logPrefix = `P${attacker.number} の「木の剣」攻撃 (対象: P${target.number})！ `;
 
-            const isHit = Math.random() < 0.5;
+            let baseHitRate = 0.5;
+            if (attacker.darknessTurns && attacker.darknessTurns > 0) {
+                baseHitRate = 0.25;
+            }
+            const isHit = Math.random() < baseHitRate;
 
             if (!isHit) {
-                broadcastGameState(logPrefix + `攻撃は外れた！（ミス）`);
+                broadcastGameState(logPrefix + `(命中率:${baseHitRate * 100}%) 攻撃は外れた！（ミス）`);
                 setTimeout(processNextLowerTarget, 500);
                 return;
             }
@@ -929,7 +1093,6 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
             }
 
             if (isSteroid) {
-                // ステロイド状態は攻撃を無効化
                 broadcastGameState(logPrefix + `命中！しかし P${target.number} は「ステロイド状態」のため攻撃が無効化されました！`);
                 return;
             }
@@ -955,7 +1118,6 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
             applyScoreChange(target, -3000);
             target.immunityCount = 2;
             broadcastGameState(logPrefix + `命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました。)`);
-            return;
         }
 
         processNextLowerTarget();
@@ -965,6 +1127,7 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
     const target = gameState.players[targetTypeOrId];
     if (!target) return;
 
+    const isSteroid = target.steroidTurns && target.steroidTurns > 0;
     const scoreDiff = target.score - attacker.score;
 
     if (scoreDiff < 0 || scoreDiff > 5000) {
@@ -975,17 +1138,25 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
         return;
     }
 
+    let baseHitRate = 0.5;
+    if (attacker.darknessTurns && attacker.darknessTurns > 0) {
+        baseHitRate = 0.25;
+    }
     let logPrefix = `P${attacker.number} が P${target.number} に「木の剣」で攻撃！ `;
-
-    const isHit = Math.random() < 0.5;
+    const isHit = Math.random() < baseHitRate;
 
     if (!isHit) {
-        broadcastGameState(logPrefix + `(成功率:50%) 攻撃は外れた！（ミス）`);
+        broadcastGameState(logPrefix + `(成功率:${baseHitRate * 100}%) 攻撃は外れた！（ミス）`);
         return;
     }
 
     if (target.invincibleTurns && target.invincibleTurns > 0) {
-        broadcastGameState(logPrefix + `(成功率:50%) 命中！しかし P${target.number} は「無敵状態」のため攻撃が無効化されました！`);
+        broadcastGameState(logPrefix + `(成功率:${baseHitRate * 100}%) 命中！しかし P${target.number} は「無敵状態」のため攻撃が無効化されました！`);
+        return;
+    }
+
+    if (isSteroid) {
+        broadcastGameState(logPrefix + `(成功率:${baseHitRate * 100}%) 命中！しかし P${target.number} は「ステロイド状態」のため攻撃が無効化されました！`);
         return;
     }
 
@@ -994,10 +1165,10 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
         const isAttackerHigherScore = attacker.score > target.score;
 
         if (isWoodSwordDefense && isAttackerHigherScore) {
-            broadcastGameState(logPrefix + `(成功率:50%) 命中！相手は「木の剣」をセット中ですが、自分より得点が高いプレイヤーからの攻撃のため防御効果が発動しません！`);
+            broadcastGameState(logPrefix + `(成功率:${baseHitRate * 100}%) 命中！相手は「木の剣」をセット中ですが、自分より得点が高いプレイヤーからの攻撃のため防御効果が発動しません！`);
         } else {
             target.defenseCard.usesLeft -= 1;
-            let msg = logPrefix + `(成功率:50%) 命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
+            let msg = logPrefix + `(成功率:${baseHitRate * 100}%) 命中！しかし相手の防御カード「${target.defenseCard.card.name}」で無効化されました！`;
             if (target.defenseCard.usesLeft <= 0) {
                 target.defenseCard = null;
                 msg += '（相手の防御カード破棄）';
@@ -1009,7 +1180,7 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
 
     applyScoreChange(target, -3000);
     target.immunityCount = 2;
-    broadcastGameState(logPrefix + `(成功率:50%) 命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました)`);
+    broadcastGameState(logPrefix + `(成功率:${baseHitRate * 100}%) 命中ヒット！ 得点-3000点！ (P${target.number}は選択不可状態になりました)`);
 }
 
 function executeShieldSetAttack(attackerId, targetId, cardObj, maxAttacks, onComplete) {
@@ -1019,7 +1190,6 @@ function executeShieldSetAttack(attackerId, targetId, cardObj, maxAttacks, onCom
     const hitRate = getWoodShieldHitRate(attacker.score, target.score);
     const isSteroid = target.steroidTurns && target.steroidTurns > 0;
 
-    // --- 修正箇所: 命中率0%の場合は処理せず終了 ---
     if (hitRate <= 0) {
         onComplete();
         return;
@@ -1054,7 +1224,6 @@ function executeShieldSetAttack(attackerId, targetId, cardObj, maxAttacks, onCom
             return;
         }
 
-        // ★修正: ステロイド状態による無効化時、次の攻撃回数に進むように調整
         if (isSteroid) {
             broadcastGameState(logPrefix + `(命中率:${ratePercent}%) 命中！しかし P${target.number} は「ステロイド状態」のため攻撃が無効化されました！`);
             setTimeout(doNextAttack, 500);
@@ -1121,11 +1290,8 @@ function executeDisasterAttack(casterSocketId) {
             const isSteroid = player.steroidTurns && player.steroidTurns > 0;
             const isImmune = player.immunityCount && player.immunityCount > 0;
 
-            // ステロイド状態のプレイヤーへの処理
             if (isSteroid) {
-                // 「大災害」の効果（ダメージ・手札全破棄）自体は受けないが、ステロイド状態は強制解除される
                 player.steroidTurns = 0;
-                // ※「大災害」での強制解除時は解除時処理（得点加算・ペナルティ）をスキップ
                 return;
             }
 
@@ -1145,16 +1311,13 @@ function executeDisasterAttack(casterSocketId) {
     }, 2000);
 }
 
-// --- ダークマターの使用時処理 ---
 function executeDarkMatter(casterSocketId) {
     const player = gameState.players[casterSocketId];
     if (!player) return;
 
-    // 1. 無敵状態の付与（次の自分のターン開始時まで）
     player.invincibleTurns = 1;
     player.invincibleSource = 'DARK_MATTER';
 
-    // 2. 自身の得点加算 (+5000点)
     const prevMyScore = player.score;
     applyScoreChange(player, 5000);
     const newMyScore = player.score;
@@ -1162,32 +1325,25 @@ function executeDarkMatter(casterSocketId) {
     const penalizedNames = [];
     const myOrderIndex = gameState.turnOrder.indexOf(casterSocketId);
 
-    // 3. 相手へのペナルティ判定
     Object.values(gameState.players).forEach(opponent => {
         if (opponent.id === player.id) return;
 
-        // 1巡目において、使用者より後に行動するプレイヤーは対象から除外
         if (gameState.round === 1) {
             const opponentOrderIndex = gameState.turnOrder.indexOf(opponent.id);
             if (opponentOrderIndex > myOrderIndex) return;
         }
 
-        // 対象が「無敵状態」または「選択不可状態」の場合はスキップ
         const isInvincible = opponent.invincibleTurns && opponent.invincibleTurns > 0;
         const isImmune = opponent.immunityCount && opponent.immunityCount > 0;
         if (isInvincible || isImmune) return;
 
-        // 条件A： カード使用前に自分と同点だった相手
         const isConditionA = (opponent.score === prevMyScore);
-        // 条件B： カード使用後に自分に追いつかれた・逆転された相手
         const isConditionB = (opponent.score > prevMyScore && newMyScore >= opponent.score);
 
         if (isConditionA || isConditionB) {
-            // ★個別で 1/2 (50%) の確率判定
             const isSuccess = Math.random() < 0.5;
 
             if (isSuccess) {
-                // 成功時 (50%)： 手札＆防御カード破棄、-3000点、選択不可状態(2ターン)付与
                 opponent.hand = [];
                 opponent.defenseCard = null;
                 applyScoreChange(opponent, -3000);
@@ -1195,7 +1351,6 @@ function executeDarkMatter(casterSocketId) {
 
                 penalizedNames.push(`P${opponent.number}(成功)`);
             } else {
-                // 失敗時 (50%)： ペナルティ不発
                 penalizedNames.push(`P${opponent.number}(不発)`);
             }
         }
@@ -1209,292 +1364,49 @@ function executeDarkMatter(casterSocketId) {
     broadcastGameState(logMsg);
 }
 
-// --- 無敵アーマーの解除時処理 ---
-function handleInvincibleArmorExpire(player) {
-    const prevScore = player.score;
+function executeSmokeScreen(casterSocketId) {
+    const caster = gameState.players[casterSocketId];
+    if (!caster) return;
 
-    // 1. 自身の得点加算 (+1000点)
-    applyScoreChange(player, 1000);
-    const newScore = player.score;
+    const myScore = caster.score;
+    const myOrderIndex = gameState.turnOrder.indexOf(casterSocketId);
 
-    let logMsg = `P${player.number} の「無敵アーマー」が解除され、+1000点獲得！`;
-    const penalizedNames = [];
+    const opponents = Object.values(gameState.players).filter(p => p.id !== casterSocketId);
 
-    // 2. 条件判定とペナルティ処理
-    Object.values(gameState.players).forEach(opponent => {
-        if (opponent.id === player.id) return;
+    const targets = opponents.filter(p => {
+        if (p.score < myScore) return false;
+        if (gameState.round === 1) {
+            const pOrderIndex = gameState.turnOrder.indexOf(p.id);
+            if (pOrderIndex > myOrderIndex) return false;
+        }
+        return true;
+    });
 
-        // 「選択不可状態」の相手は対象外
-        if (opponent.immunityCount && opponent.immunityCount > 0) return;
+    if (targets.length > 0) {
+        const affectedNames = [];
 
-        // 解除前に「同点以下（<=）」で、加算により同点以上になったかを判定
-        if (prevScore <= opponent.score && newScore >= opponent.score) {
-            // ★個別で 1/2 (50%) の確率判定
-            const isSuccess = Math.random() < 0.5;
+        targets.forEach(target => {
+            const isInvincible = target.invincibleTurns && target.invincibleTurns > 0;
+            const isSteroid = target.steroidTurns && target.steroidTurns > 0;
 
-            if (isSuccess) {
-                // 成功時 (50%)： 手札＆防御カード破棄、-3000点、選択不可状態(2ターン)付与
-                opponent.hand = [];
-                opponent.defenseCard = null;
-                applyScoreChange(opponent, -3000);
-                opponent.immunityCount = 2;
-
-                penalizedNames.push(`P${opponent.number}(成功)`);
-            } else {
-                // 失敗時 (50%)： ペナルティ不発
-                penalizedNames.push(`P${opponent.number}(不発)`);
+            if (isInvincible || isSteroid) {
+                affectedNames.push(`P${target.number}(無効)`);
+                return;
             }
-        }
-    });
 
-    if (penalizedNames.length > 0) {
-        logMsg += ` ペナルティ判定結果: ${penalizedNames.join(', ')}`;
-    }
-
-    broadcastGameState(logMsg);
-}
-function skipDraftAndStartGame() {
-    gameState.draft.phase = 'FINISHED';
-    const scoreMap = { 1: 5000, 2: 1000, 3: -1000, 4: -5000 };
-    Object.values(gameState.players).forEach(p => {
-        p.score += (scoreMap[p.number] || 0);
-        p.draftResolved = true;
-    });
-    finalizeDraftAndStartGame();
-}
-
-function resolveDraft() {
-    if (gameState.draft.timer) clearTimeout(gameState.draft.timer);
-    const choices = gameState.draft.choices;
-    const scoreGroups = {};
-
-    Object.keys(choices).forEach(id => {
-        const score = choices[id];
-        if (!scoreGroups[score]) scoreGroups[score] = [];
-        scoreGroups[score].push(id);
-    });
-
-    Object.keys(scoreGroups).forEach(scoreStr => {
-        const score = parseInt(scoreStr);
-        const group = scoreGroups[scoreStr];
-        const winnerId = group[Math.floor(Math.random() * group.length)];
-
-        if (!gameState.players[winnerId].draftResolved) {
-            gameState.players[winnerId].score += score;
-            gameState.players[winnerId].draftResolved = true;
-            const idx = gameState.draft.availableScores.indexOf(score);
-            if (idx !== -1) gameState.draft.availableScores.splice(idx, 1);
-        }
-    });
-
-    gameState.draft.choices = {};
-    let unresolvedIds = Object.keys(gameState.players).filter(id => !gameState.players[id].draftResolved);
-
-    if (unresolvedIds.length > 0 && gameState.draft.availableScores.length === 1) {
-        const lastScore = gameState.draft.availableScores[0];
-        unresolvedIds.forEach(id => {
-            gameState.players[id].score += lastScore;
-            gameState.players[id].draftResolved = true;
-        });
-        gameState.draft.availableScores = [];
-        unresolvedIds = [];
-    }
-
-    if (unresolvedIds.length > 0) {
-        io.emit('draftConflict', {
-            players: gameState.players,
-            availableScores: gameState.draft.availableScores,
-            unresolvedIds: unresolvedIds
+            applyScoreChange(target, -1000);
+            target.darknessTurns = 1;
+            affectedNames.push(`P${target.number}`);
         });
 
-        gameState.draft.timer = setTimeout(() => {
-            autoFillDraftAndResolve();
-        }, 15000);
+        broadcastGameState(`P${caster.number} が「煙幕」を使用！ 対象: ${affectedNames.join(', ')} (-1000点 & 暗闇1ターン付与)`);
     } else {
-        gameState.draft.phase = 'FINISHED';
-        finalizeDraftAndStartGame();
+        applyScoreChange(caster, -1000);
+        caster.darknessTurns = 2;
+        broadcastGameState(`P${caster.number} が「煙幕」を使用！ 該当する相手がいないため自身に効果発動 (-1000点 & 暗闇2ターン付与)`);
     }
 }
 
-function autoFillDraftAndResolve() {
-    gameState.draft.timer = null;
-    const unresolvedIds = Object.keys(gameState.players).filter(id => !gameState.players[id].draftResolved);
-    unresolvedIds.forEach(id => {
-        if (gameState.draft.choices[id] === undefined) {
-            const randScore = gameState.draft.availableScores[Math.floor(Math.random() * gameState.draft.availableScores.length)];
-            gameState.draft.choices[id] = randScore;
-        }
-    });
-    resolveDraft();
-}
-
-function finalizeDraftAndStartGame() {
-    gameState.started = true;
-    gameState.actedPlayerIds = [];
-
-    const sortedPlayers = Object.values(gameState.players).sort((a, b) => b.score - a.score);
-    gameState.turnOrder = sortedPlayers.map(p => p.id);
-    gameState.currentTurnPlayerId = sortedPlayers[0].id;
-
-    startPlayerTurn();
-}
-
-function startPlayerTurn() {
-    gameState.turnPhase = 'BONUS_CHOICE';
-    const currentPlayer = gameState.players[gameState.currentTurnPlayerId];
-
-    // 次の自分のターン開始時にダークマターの無敵状態を解除
-    if (currentPlayer && currentPlayer.invincibleSource === 'DARK_MATTER') {
-        currentPlayer.invincibleTurns = 0;
-        currentPlayer.invincibleSource = null;
-    }
-
-    let logMsg = `第 ${gameState.round} 巡目: P${currentPlayer.number} のターンが始まりました。`;
-    broadcastGameState(logMsg);
-}
-
-// --- ステロイドの正常解除時処理 ---
-function handleSteroidExpire(player) {
-    const prevScore = player.score;
-
-    // 1. 自身の得点加算 (+1000点)
-    applyScoreChange(player, 1000);
-    const newScore = player.score;
-
-    let logMsg = `P${player.number} の「ステロイド状態」が解除され、+1000点獲得！`;
-    const penalizedNames = [];
-
-    // 2. 条件判定とペナルティ処理
-    Object.values(gameState.players).forEach(opponent => {
-        if (opponent.id === player.id) return;
-
-        // 対象が「無敵状態」「ステロイド状態」「選択不可状態」のいずれかである場合は除外
-        const isInvincible = opponent.invincibleTurns && opponent.invincibleTurns > 0;
-        const isSteroid = opponent.steroidTurns && opponent.steroidTurns > 0;
-        const isImmune = opponent.immunityCount && opponent.immunityCount > 0;
-        if (isInvincible || isSteroid || isImmune) return;
-
-        // 条件A: 解除「前」の時点で自分と同点だった相手
-        const isConditionA = (opponent.score === prevScore);
-        // 条件B: 解除「後」に自分に追いつかれた・逆転された相手
-        const isConditionB = (opponent.score > prevScore && newScore >= opponent.score);
-
-        if (isConditionA || isConditionB) {
-            // 独立して 1/2 (50%) の確率判定
-            const isSuccess = Math.random() < 0.5;
-
-            if (isSuccess) {
-                // 成功時 (50%): 手札＆防御カード全破棄、-3000点、選択不可状態(2ターン)付与
-                opponent.hand = [];
-                opponent.defenseCard = null;
-                applyScoreChange(opponent, -3000);
-                opponent.immunityCount = 2;
-
-                penalizedNames.push(`P${opponent.number}(成功)`);
-            } else {
-                // 失敗時 (50%): ペナルティ不発
-                penalizedNames.push(`P${opponent.number}(不発)`);
-            }
-        }
-    });
-
-    if (penalizedNames.length > 0) {
-        logMsg += ` ペナルティ判定結果: ${penalizedNames.join(', ')}`;
-    }
-
-    broadcastGameState(logMsg);
-}
-
-function proceedToNextTurn() {
-    const endingPlayerId = gameState.currentTurnPlayerId;
-
-    if (endingPlayerId && !gameState.actedPlayerIds.includes(endingPlayerId)) {
-        gameState.actedPlayerIds.push(endingPlayerId);
-    }
-
-    // 無敵状態解除の対象者を格納する配列
-    const expiredInvinciblePlayers = [];
-    const expiredSteroidPlayers = [];
-
-    Object.values(gameState.players).forEach(p => {
-        // 無敵アーマー(ARMOR)の減算処理
-        if (p.invincibleTurns && p.invincibleTurns > 0 && p.invincibleSource === 'ARMOR') {
-            p.invincibleTurns -= 1;
-            if (p.invincibleTurns === 0) {
-                expiredInvinciblePlayers.push(p);
-            }
-        }
-
-        // ステロイド状態の減算処理
-        if (p.steroidTurns && p.steroidTurns > 0) {
-            p.steroidTurns -= 1;
-            if (p.steroidTurns === 0) {
-                expiredSteroidPlayers.push(p);
-            }
-        }
-
-        if (p.id !== endingPlayerId && p.immunityCount && p.immunityCount > 0) {
-            p.immunityCount -= 1;
-        }
-    });
-
-    expiredInvinciblePlayers.forEach(p => {
-        if (p.invincibleSource === 'ARMOR') {
-            handleInvincibleArmorExpire(p);
-        }
-        p.invincibleSource = null;
-    });
-
-    // ステロイド正常解除処理の実行
-    expiredSteroidPlayers.forEach(p => {
-        handleSteroidExpire(p);
-    });
-
-    if (gameState.actedPlayerIds.length >= Object.keys(gameState.players).length) {
-        gameState.actedPlayerIds = [];
-        gameState.round++;
-
-        if (gameState.round > 10) {
-            const winner = Object.values(gameState.players).sort((a, b) => b.score - a.score)[0];
-            io.emit('gameOver', { winner, players: gameState.players });
-            return;
-        }
-    }
-
-    const sortedPlayers = Object.values(gameState.players).sort((a, b) => b.score - a.score);
-    gameState.turnOrder = sortedPlayers.map(p => p.id);
-
-    const nextPlayer = sortedPlayers.find(p => !gameState.actedPlayerIds.includes(p.id));
-
-    if (nextPlayer) {
-        gameState.currentTurnPlayerId = nextPlayer.id;
-    }
-
-    startPlayerTurn();
-}
-
-function broadcastGameState(logMessage = '') {
-    io.emit('syncGameState', {
-        players: gameState.players,
-        turnOrder: gameState.turnOrder,
-        currentTurnPlayerId: gameState.currentTurnPlayerId,
-        round: gameState.round,
-        turnPhase: gameState.turnPhase,
-        log: logMessage
-    });
-}
-
-function resetScoreChanges() {
-    Object.values(gameState.players).forEach(p => {
-        p.scoreChange = 0;
-        p.prevScore = p.score;
-    });
-}
-
-function applyScoreChange(player, amount) {
-    player.prevScore = player.score;
-    player.scoreChange = amount;
-    player.score += amount;
-}
-
-server.listen(3000, () => console.log('Server running on http://localhost:3000'));
+server.listen(3000, () => {
+    console.log('サーバーがポート 3000 で起動しました');
+});

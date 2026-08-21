@@ -417,7 +417,6 @@
     <details class="debug-score-panel" open>
         <summary>🛠 スコア調整 (デバッグ)</summary>
 
-        <!-- ★追加: ボーナスモーダルスキップ切り替えスイッチ -->
         <div
             style="margin-top: 6px; padding-bottom: 6px; border-bottom: 1px solid #334155; display: flex; align-items: center; justify-content: space-between;">
             <span style="font-weight: bold; color: #cbd5e1;">ボーナススキップ:</span>
@@ -547,7 +546,8 @@
             disaster: '大災害',
             invincible_armor: '無敵アーマー',
             dark_matter: 'ダークマター',
-            steroid: 'ステロイド' // ★追加
+            steroid: 'ステロイド',
+            smoke_screen: '煙幕'
         };
 
         socket.on('connect', () => { myId = socket.id; });
@@ -825,19 +825,18 @@
                     statusBadge += `<span style="color:#e74c3c; font-weight:bold; margin-left:5px;">[選択不可:${p.immunityCount}]</span>`;
                 }
 
-                // 「無敵状態」バッジ表示制御（ダークマターは全体公開、無敵アーマーは使用者の画面にのみ表示）
                 if (p.invincibleTurns > 0) {
                     if (p.invincibleSource === 'DARK_MATTER') {
-                        // ダークマター：残ターン数を非表示
                         statusBadge += `<span style="color:#f1c40f; font-weight:bold; margin-left:5px;">[無敵]</span>`;
                     } else if (isMe) {
-                        // 無敵アーマー：自分のみ残ターン数を表示
                         statusBadge += `<span style="color:#f1c40f; font-weight:bold; margin-left:5px;">[無敵:${p.invincibleTurns}]</span>`;
                     }
                 }
-                // 「ステロイド状態」バッジ表示制御（自分のみ表示・他プレイヤーには完全非公開）
                 if (p.steroidTurns > 0 && isMe) {
                     statusBadge += `<span style="color:#e67e22; font-weight:bold; margin-left:5px;">[ステロイド:${p.steroidTurns}]</span>`;
+                }
+                if (p.darknessTurns > 0) {
+                    statusBadge += `<span style="color:#95a5a6; font-weight:bold; margin-left:5px;">[暗闇:${p.darknessTurns}]</span>`;
                 }
                 box.innerHTML = `
                     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -860,19 +859,15 @@
             document.getElementById('bonus-choice-modal').style.display = 'none';
         }
 
-        // ★追加: ボーナスキップ設定フラグ（初期値: true）
         let skipBonusModal = true;
 
-        // 1. スイッチ操作時にサーバーへ変更を送信するよう変更
         function toggleBonusSkip(enabled) {
             socket.emit('toggleBonusSkipSetting', enabled);
         }
 
-        // 2. サーバーから全プレイヤー一括同期イベントを受信した際の処理
         socket.on('updateBonusSkipSetting', (enabled) => {
             skipBonusModal = enabled;
 
-            // UI（チェックボックスと表示テキスト）を更新
             const checkEl = document.getElementById('debug-skip-bonus-check');
             const textEl = document.getElementById('debug-skip-bonus-text');
 
@@ -883,7 +878,6 @@
             }
         });
 
-        // 既存の updateTurnControls(data) 関数の改修
         function updateTurnControls(data) {
             const roundInfo = document.getElementById('round-info');
             const endTurnBtnContainer = document.getElementById('center-end-turn-btn');
@@ -903,9 +897,7 @@
             if (!isMyTurn) return;
 
             if (data.turnPhase === 'BONUS_CHOICE') {
-                // ★追加: スキップ判定
                 if (skipBonusModal) {
-                    // モーダルを表示せず、即座に「受け取らない(false)」を選択して送信
                     chooseBonusChoice(false);
                     return;
                 }
@@ -945,7 +937,7 @@
             document.getElementById('drop-action-modal').style.display = 'none';
         }
 
-        function calculateLowerTargetsHitRates(lowerPlayers) {
+        function calculateLowerTargetsHitRates(lowerPlayers, isDarkness = false) {
             if (!lowerPlayers || lowerPlayers.length === 0) return [];
 
             const sorted = [...lowerPlayers].sort((a, b) => b.score - a.score);
@@ -961,10 +953,12 @@
 
             const result = [];
             let pMiss = 1.0;
+            const darknessMult = isDarkness ? 0.5 : 1.0;
 
             groups.forEach(group => {
                 const m = group.players.length;
-                const groupHitProb = pMiss * (1 - Math.pow(0.5, m));
+                const baseProb = 0.5 * darknessMult;
+                const groupHitProb = pMiss * (1 - Math.pow(1 - baseProb, m));
                 const individualHitProb = groupHitProb / m;
 
                 group.players.forEach(p => {
@@ -972,41 +966,37 @@
                     result.push({ player: p, hitRate: ratePercent });
                 });
 
-                pMiss = pMiss * Math.pow(0.5, m);
+                pMiss = pMiss * Math.pow(1 - baseProb, m);
             });
 
             return result;
         }
 
-        function calculateWoodShieldGroupHitRates(candidates, myScore, attackCount = 1) {
+        // ★修正: 木の盾 / 木の盾セット 共通の確率計算処理
+        function calculateWoodShieldGroupHitRates(candidates, myScore, attackCount = 1, isDarkness = false) {
             if (!candidates || candidates.length === 0) return { groupStr: '', rateDetailStr: '' };
 
-            // 各プレイヤーの累計被弾（命中）確率を保持するマップ
             const hitProbabilities = {};
             candidates.forEach(p => hitProbabilities[p.id] = 0);
 
-            // 初期状態：全員が未被弾（alive）の確率1.0
-            // state: { aliveIds: [...], prob: 1.0 }
             let currentStates = [{
                 aliveIds: candidates.map(p => p.id),
                 prob: 1.0
             }];
 
-            // 指定された攻撃回数分、状態遷移をシミュレート
+            const darknessMult = isDarkness ? 0.5 : 1.0;
+
             for (let step = 0; step < attackCount; step++) {
                 const nextStates = [];
 
                 currentStates.forEach(state => {
                     const aliveCandidates = candidates.filter(p => state.aliveIds.includes(p.id));
 
-                    // 生き残りがいない場合、確率はそのまま次へ
                     if (aliveCandidates.length === 0) {
                         nextStates.push(state);
                         return;
                     }
 
-                    // --- 1回分のグループ攻撃ヒット確率を算出 ---
-                    // 1. 点差順にグループ化
                     const groups = [];
                     const sorted = [...aliveCandidates].sort((a, b) => Math.abs(myScore - a.score) - Math.abs(myScore - b.score));
                     sorted.forEach(p => {
@@ -1016,24 +1006,22 @@
                         else groups.push({ diff, players: [p] });
                     });
 
-                    // 2. 各個人の「この1回でヒットする確率」を計算（均等分散を反映）
                     const singleHitProb = {};
                     let pMissCumulative = 1.0;
 
                     groups.forEach(g => {
                         const m = g.players.length;
-                        const r = Math.max(0, 1 - g.diff / 10000);
+                        let r = Math.max(0, 1 - g.diff / 10000) * darknessMult;
                         if (r <= 0 || m === 0) return;
 
                         const pGroupAllMiss = Math.pow(1 - r, m);
                         const pGroupHitTotal = pMissCumulative * (1 - pGroupAllMiss);
-                        const pIndividual = pGroupHitTotal / m; // 同点分散
+                        const pIndividual = pGroupHitTotal / m;
 
                         g.players.forEach(p => singleHitProb[p.id] = pIndividual);
                         pMissCumulative *= pGroupAllMiss;
                     });
 
-                    // 3. 全員ミスした場合の分岐
                     const totalHitProbInThisStep = Object.values(singleHitProb).reduce((a, b) => a + b, 0);
                     const missProbInThisStep = 1 - totalHitProbInThisStep;
 
@@ -1044,17 +1032,13 @@
                         });
                     }
 
-                    // 4. 誰か1人にヒットした場合の分岐（ターゲット再抽選・離脱処理）
                     Object.keys(singleHitProb).forEach(hitPlayerId => {
                         const pHit = singleHitProb[hitPlayerId];
                         if (pHit <= 0) return;
 
                         const transitionProb = state.prob * pHit;
-
-                        // 命中確率を加算
                         hitProbabilities[hitPlayerId] += transitionProb;
 
-                        // 被弾したプレイヤーを除外して次の状態へ
                         nextStates.push({
                             aliveIds: state.aliveIds.filter(id => id !== hitPlayerId),
                             prob: transitionProb
@@ -1065,7 +1049,6 @@
                 currentStates = nextStates;
             }
 
-            // 表示用文字列の成形
             const rateDetails = [];
             const playerNames = [];
 
@@ -1096,7 +1079,11 @@
             const cardId = selectEl.getAttribute('data-card-id');
             const isDefense = (selectEl.id === 'drop-def-attack-target');
 
-            if (cardId === 'wood_shield_set' && (selectEl.value === 'EQUAL_OR_HIGHER' || selectEl.value === 'LOWER')) {
+            const myPlayer = (latestGameState && myId) ? latestGameState.players[myId] : null;
+            const isDarkness = myPlayer && myPlayer.darknessTurns > 0;
+
+            // ★修正: 木の盾（wood_shield）および 木の盾セット（wood_shield_set）の両方で累積計算ロジックを使用
+            if ((cardId === 'wood_shield' || cardId === 'wood_shield_set') && (selectEl.value === 'EQUAL_OR_HIGHER' || selectEl.value === 'LOWER')) {
                 let countSelect = null;
                 if (isDefense) {
                     countSelect = document.getElementById('drop-def-attack-count');
@@ -1105,40 +1092,44 @@
                     countSelect = document.getElementById(`drop-attack-count-${instanceId}`);
                 }
 
-                const attackCount = countSelect ? (Number(countSelect.value) || 1) : 1;
+                // 木の盾は1回攻撃固定、木の盾セットは選択回数（デフォルト1回）
+                const attackCount = (cardId === 'wood_shield_set' && countSelect) ? (Number(countSelect.value) || 1) : 1;
 
-                if (latestGameState && myId) {
-                    const myPlayer = latestGameState.players[myId];
-                    if (myPlayer) {
-                        const myScore = myPlayer.score;
-                        const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
-                        const allPlayers = Object.values(latestGameState.players);
+                if (myPlayer) {
+                    const myScore = myPlayer.score;
+                    const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
+                    const allPlayers = Object.values(latestGameState.players);
 
-                        const validCandidates = allPlayers.filter(p => {
-                            if (p.id === myId) return false;
-                            if (p.immunityCount && p.immunityCount > 0) return false;
-                            if (latestGameState.round === 1) {
-                                const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
-                                if (pOrderIdx > myOrderIdx) return false;
-                            }
-                            return true;
-                        });
+                    const validCandidates = allPlayers.filter(p => {
+                        if (p.id === myId) return false;
+                        if (p.immunityCount && p.immunityCount > 0) return false;
+                        if (latestGameState.round === 1) {
+                            const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
+                            if (pOrderIdx > myOrderIdx) return false;
+                        }
+                        return true;
+                    });
 
-                        const hitCandidates = validCandidates.filter(p => Math.abs(myScore - p.score) < 10000);
-                        const candidates = selectEl.value === 'EQUAL_OR_HIGHER'
-                            ? hitCandidates.filter(p => p.score >= myScore)
-                            : hitCandidates.filter(p => p.score < myScore);
+                    const hitCandidates = validCandidates.filter(p => Math.abs(myScore - p.score) < 10000);
+                    const candidates = selectEl.value === 'EQUAL_OR_HIGHER'
+                        ? hitCandidates.filter(p => p.score >= myScore)
+                        : hitCandidates.filter(p => p.score < myScore);
 
-                        const { rateDetailStr } = calculateWoodShieldGroupHitRates(candidates, myScore, attackCount);
-                        displayEl.innerHTML = `🎯 命中率: <span style="color:#f1c40f; font-weight:bold;">${rateDetailStr}</span>`;
-                        return;
-                    }
+                    const { rateDetailStr } = calculateWoodShieldGroupHitRates(candidates, myScore, attackCount, isDarkness);
+                    displayEl.innerHTML = `🎯 命中率: <span style="color:#f1c40f; font-weight:bold;">${rateDetailStr}${isDarkness ? ' (暗闇半減)' : ''}</span>`;
+                    return;
                 }
             }
 
-            const rateInfo = selectedOption.getAttribute('data-hitrate');
-            if (rateInfo) {
-                displayEl.innerHTML = `🎯 命中率: <span style="color:#f1c40f; font-weight:bold;">${rateInfo}</span>`;
+            const rawRateInfo = selectedOption.getAttribute('data-hitrate');
+            if (rawRateInfo) {
+                let displayStr = rawRateInfo;
+                if (isDarkness) {
+                    displayStr = rawRateInfo.replace(/(\d+(\.\d+)?)%/g, (match, p1) => {
+                        return `${(parseFloat(p1) / 2).toFixed(1).replace(/\.0$/, '')}%`;
+                    }) + ' (暗闇半減)';
+                }
+                displayEl.innerHTML = `🎯 命中率: <span style="color:#f1c40f; font-weight:bold;">${displayStr}</span>`;
             } else {
                 displayEl.innerText = '';
             }
@@ -1243,6 +1234,8 @@
                     html += `<button class="btn" style="background:#8e44ad; color:#fff; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">ダークマターを使用する</button>`;
                 } else if (card.id === 'steroid') {
                     html += `<button class="btn" style="background:#e67e22; color:#fff; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">ステロイドを使用する</button>`;
+                } else if (card.id === 'smoke_screen') {
+                    html += `<button class="btn" style="background:#7f8c8d; color:#fff; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">煙幕を使用する</button>`;
                 } else {
                     const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
                     let targetOptionsHtml = '';
@@ -1268,12 +1261,15 @@
 
                         if (equalOrHigher.length > 0) {
                             hasValidTarget = true;
-                            const { groupStr, rateDetailStr } = calculateWoodShieldGroupHitRates(equalOrHigher, myScore);
+                            // ★修正: 木の盾モーダル表示時の計算処理
+                            const isDarkness = myPlayer.darknessTurns > 0;
+                            const { groupStr, rateDetailStr } = calculateWoodShieldGroupHitRates(equalOrHigher, myScore, 1, isDarkness);
                             targetOptionsHtml += `<option value="EQUAL_OR_HIGHER" data-hitrate="${rateDetailStr}">同点以上 (${groupStr})</option>`;
                         }
                         if (lower.length > 0) {
                             hasValidTarget = true;
-                            const { groupStr, rateDetailStr } = calculateWoodShieldGroupHitRates(lower, myScore);
+                            const isDarkness = myPlayer.darknessTurns > 0;
+                            const { groupStr, rateDetailStr } = calculateWoodShieldGroupHitRates(lower, myScore, 1, isDarkness);
                             targetOptionsHtml += `<option value="LOWER" data-hitrate="${rateDetailStr}">下位全員 (${groupStr})</option>`;
                         }
                     } else if (card.id === 'wood_sword') {
@@ -1287,7 +1283,7 @@
 
                                 if (scoreDiff >= 0 && scoreDiff <= 5000 && !isImmune) {
                                     hasValidTarget = true;
-                                    targetOptionsHtml += `<option value="${p.id}" data-hitrate="50%">${p.name} (命中率: 50%)</option>`;
+                                    targetOptionsHtml += `<option value="${p.id}" data-hitrate="50%">${p.name}</option>`;
                                 }
                             }
                         });
@@ -1305,7 +1301,8 @@
                                 hasValidTarget = true;
                                 const hitRates = calculateLowerTargetsHitRates(lowerPlayers);
                                 const rateDetailStr = hitRates.map(item => `${item.player.name}: ${item.hitRate}%`).join(', ');
-                                targetOptionsHtml += `<option value="ALL_LOWER" data-hitrate="${rateDetailStr}">下位全員 (${rateDetailStr})</option>`;
+                                const groupStr = lowerPlayers.map(p => p.name).join(',');
+                                targetOptionsHtml += `<option value="ALL_LOWER" data-hitrate="${rateDetailStr}">下位全員 (${groupStr})</option>`;
                             }
                         }
                     }
@@ -1372,12 +1369,14 @@
 
                     if (equalOrHigher.length > 0) {
                         hasValidTarget = true;
-                        const { groupStr, rateDetailStr } = calculateWoodShieldGroupHitRates(equalOrHigher, myScore);
+                        const isDarkness = myPlayer.darknessTurns > 0;
+                        const { groupStr, rateDetailStr } = calculateWoodShieldGroupHitRates(equalOrHigher, myScore, 1, isDarkness);
                         targetOptionsHtml += `<option value="EQUAL_OR_HIGHER" data-hitrate="${rateDetailStr}">同点以上 (${groupStr})</option>`;
                     }
                     if (lower.length > 0) {
                         hasValidTarget = true;
-                        const { groupStr, rateDetailStr } = calculateWoodShieldGroupHitRates(lower, myScore);
+                        const isDarkness = myPlayer.darknessTurns > 0;
+                        const { groupStr, rateDetailStr } = calculateWoodShieldGroupHitRates(lower, myScore, 1, isDarkness);
                         targetOptionsHtml += `<option value="LOWER" data-hitrate="${rateDetailStr}">下位全員 (${groupStr})</option>`;
                     }
                 }
