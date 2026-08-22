@@ -538,6 +538,14 @@
         let latestGameState = null;
         let currentCardSettings = {};
 
+        function isLaterPlayerInRound1(actorId, targetId) {
+            if (!latestGameState || latestGameState.round !== 1) return false;
+            if (!targetId || targetId === actorId) return false;
+            if (targetId === latestGameState.currentTurnPlayerId) return false;
+            const acted = latestGameState.actedPlayerIds || [];
+            return !acted.includes(targetId);
+        }
+
         const CARD_NAMES = {
             gold_bag: '金袋',
             wood_sword: '木の剣',
@@ -1097,16 +1105,12 @@
 
                 if (myPlayer) {
                     const myScore = myPlayer.score;
-                    const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
                     const allPlayers = Object.values(latestGameState.players);
 
                     const validCandidates = allPlayers.filter(p => {
                         if (p.id === myId) return false;
                         if (p.immunityCount && p.immunityCount > 0) return false;
-                        if (latestGameState.round === 1) {
-                            const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
-                            if (pOrderIdx > myOrderIdx) return false;
-                        }
+                        if (isLaterPlayerInRound1(myId, p.id)) return false;
                         return true;
                     });
 
@@ -1237,7 +1241,6 @@
                 } else if (card.id === 'smoke_screen') {
                     html += `<button class="btn" style="background:#7f8c8d; color:#fff; font-size:1.05em; width:100%; font-weight:bold;" onclick="socket.emit('playCard', { instanceId: '${card.instanceId}' }); closeDropActionModal();">煙幕を使用する</button>`;
                 } else {
-                    const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
                     let targetOptionsHtml = '';
                     let hasValidTarget = false;
 
@@ -1248,10 +1251,7 @@
                         const validCandidates = allPlayers.filter(p => {
                             if (p.id === myId) return false;
                             if (p.immunityCount && p.immunityCount > 0) return false;
-                            if (latestGameState.round === 1) {
-                                const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
-                                if (pOrderIdx > myOrderIdx) return false;
-                            }
+                            if (isLaterPlayerInRound1(myId, p.id)) return false;
                             return true;
                         });
 
@@ -1280,6 +1280,7 @@
                             if (p.id !== myId) {
                                 const scoreDiff = p.score - myScore;
                                 const isImmune = p.immunityCount && p.immunityCount > 0;
+                                if (isLaterPlayerInRound1(myId, p.id)) return;
 
                                 if (scoreDiff >= 0 && scoreDiff <= 5000 && !isImmune) {
                                     hasValidTarget = true;
@@ -1288,22 +1289,13 @@
                             }
                         });
 
-                        let lowerPlayers = allPlayers.filter(p => p.score < myScore && (!p.immunityCount || p.immunityCount <= 0));
+                        let lowerPlayers = allPlayers.filter(p => p.score < myScore && (!p.immunityCount || p.immunityCount <= 0) && !isLaterPlayerInRound1(myId, p.id));
                         if (lowerPlayers.length > 0) {
-                            if (latestGameState.round === 1) {
-                                lowerPlayers = lowerPlayers.filter(p => {
-                                    const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
-                                    return pOrderIdx <= myOrderIdx;
-                                });
-                            }
-
-                            if (lowerPlayers.length > 0) {
-                                hasValidTarget = true;
-                                const hitRates = calculateLowerTargetsHitRates(lowerPlayers);
-                                const rateDetailStr = hitRates.map(item => `${item.player.name}: ${item.hitRate}%`).join(', ');
-                                const groupStr = lowerPlayers.map(p => p.name).join(',');
-                                targetOptionsHtml += `<option value="ALL_LOWER" data-hitrate="${rateDetailStr}">下位全員 (${groupStr})</option>`;
-                            }
+                            hasValidTarget = true;
+                            const hitRates = calculateLowerTargetsHitRates(lowerPlayers);
+                            const rateDetailStr = hitRates.map(item => `${item.player.name}: ${item.hitRate}%`).join(', ');
+                            const groupStr = lowerPlayers.map(p => p.name).join(',');
+                            targetOptionsHtml += `<option value="ALL_LOWER" data-hitrate="${rateDetailStr}">下位全員 (${groupStr})</option>`;
                         }
                     }
 
@@ -1345,7 +1337,6 @@
                     html += `</div>`;
                 }
             } else if (source === 'DEFENSE') {
-                const myOrderIdx = latestGameState.turnOrder.indexOf(myId);
                 let targetOptionsHtml = '';
                 let hasValidTarget = false;
 
@@ -1356,10 +1347,7 @@
                     const validCandidates = allPlayers.filter(p => {
                         if (p.id === myId) return false;
                         if (p.immunityCount && p.immunityCount > 0) return false;
-                        if (latestGameState.round === 1) {
-                            const pOrderIdx = latestGameState.turnOrder.indexOf(p.id);
-                            if (pOrderIdx > myOrderIdx) return false;
-                        }
+                        if (isLaterPlayerInRound1(myId, p.id)) return false;
                         return true;
                     });
 

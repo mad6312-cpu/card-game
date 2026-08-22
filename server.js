@@ -138,15 +138,20 @@ function getRandomAvailableCard(player) {
     };
 }
 
-function broadcastGameState(customLog = '') {
-    io.emit('syncGameState', {
+function getSyncPayload(customLog = '') {
+    return {
         players: gameState.players,
         turnOrder: gameState.turnOrder,
         currentTurnPlayerId: gameState.currentTurnPlayerId,
+        actedPlayerIds: gameState.actedPlayerIds,
         round: gameState.round,
         turnPhase: gameState.turnPhase,
         log: customLog
-    });
+    };
+}
+
+function broadcastGameState(customLog = '') {
+    io.emit('syncGameState', getSyncPayload(customLog));
 }
 
 function skipDraftAndStartGame() {
@@ -239,12 +244,6 @@ function resolveDraft() {
 
 /**
  * 次の行動プレイヤーを決定するロジック
- * 
- * 基本ルール:
- *  - 「その時点での得点が高い順」で動的に決定（同点の場合はランダム）
- *  - その巡目（1巡）ですでに行動済みのプレイヤー (actedPlayerIds) は候補から除外
- * Exception (1巡目のみ):
- *  - 1巡目かつ全員が同点の場合に限り P1 → P2 → P3 → P4 の固定順で進行
  */
 function getNextPlayerId() {
     const allPlayers = Object.values(gameState.players);
@@ -266,27 +265,58 @@ function getNextPlayerId() {
     }
 
     // --- 基本ルール（動的な順番決定）---
-    // 得点の降順（高い順）でソート
     unactedPlayers.sort((a, b) => b.score - a.score);
-
-    // 最高得点を取得
     const highestScore = unactedPlayers[0].score;
-
-    // 最高得点を持つプレイヤー群（同点者）を抽出
     const topCandidates = unactedPlayers.filter(p => p.score === highestScore);
 
     if (topCandidates.length === 1) {
-        // 同点者がいなければ最高得点者が行動
         return topCandidates[0].id;
     } else {
-        // 同点の場合はランダムで1人選択
         const randomIndex = Math.floor(Math.random() * topCandidates.length);
         return topCandidates[randomIndex].id;
     }
 }
 
 /**
- * ターン進行処理関数 (書き換え版)
+ * 1巡目の共通ルール（カード非依存）
+ * - ルールⅠ: 自分より後に行動するプレイヤーを攻撃対象に選べない
+ * - ルールⅡ: 自分より前に行動するプレイヤーが使ったカードの効果を受けない
+ *
+ * 行動順はこの巡の actedPlayerIds（ターン終了済み＝先行）と
+ * currentTurnPlayerId（いま行動中）で決める。未行動の相手は後行。
+ */
+function isLaterPlayerInRound1(actorId, targetId) {
+    if (gameState.round !== 1) return false;
+    if (!targetId || targetId === actorId) return false;
+    if (targetId === gameState.currentTurnPlayerId) return false;
+    return !gameState.actedPlayerIds.includes(targetId);
+}
+
+function cannotSelectAsAttackTargetInRound1(attackerId, targetId) {
+    return isLaterPlayerInRound1(attackerId, targetId);
+}
+
+function isImmuneToRound1CardEffect(targetId, casterId) {
+    return isLaterPlayerInRound1(casterId, targetId);
+}
+
+const ROUND1_TARGET_ERROR = '1巡目は自分より後に行動するプレイヤーを攻撃対象に選択できません。';
+
+function emitIfCannotSelectRound1Target(socket, attackerId, targetPlayerId) {
+    if (!cannotSelectAsAttackTargetInRound1(attackerId, targetPlayerId)) return false;
+    socket.emit('errorMessage', ROUND1_TARGET_ERROR);
+    return true;
+}
+
+function skipIfImmuneToRound1CardEffect(target, caster, cardLabel) {
+    if (!target || !caster) return false;
+    if (!isImmuneToRound1CardEffect(target.id, caster.id)) return false;
+    broadcastGameState(`P${caster.number} の${cardLabel} (対象: P${target.number})！ P${target.number} は1巡目のため、先行プレイヤーのカード効果を受けません。`);
+    return true;
+}
+
+/**
+ * ターン進行処理関数
  */
 function proceedToNextTurn() {
     resetScoreChanges();
@@ -437,23 +467,8 @@ io.on('connection', (socket) => {
 
         const bonusLog = acceptBonus ? ' (+3000点獲得)' : '';
 
-        socket.emit('syncGameState', {
-            players: gameState.players,
-            turnOrder: gameState.turnOrder,
-            currentTurnPlayerId: gameState.currentTurnPlayerId,
-            round: gameState.round,
-            turnPhase: gameState.turnPhase,
-            log: `「${randomCard.name}」を獲得しました。${bonusLog}`
-        });
-
-        socket.broadcast.emit('syncGameState', {
-            players: gameState.players,
-            turnOrder: gameState.turnOrder,
-            currentTurnPlayerId: gameState.currentTurnPlayerId,
-            round: gameState.round,
-            turnPhase: gameState.turnPhase,
-            log: `P${player.number} がカードを1枚獲得しました。${bonusLog}`
-        });
+        socket.emit('syncGameState', getSyncPayload(`「${randomCard.name}」を獲得しました。${bonusLog}`));
+        socket.broadcast.emit('syncGameState', getSyncPayload(`P${player.number} がカードを1枚獲得しました。${bonusLog}`));
     });
 
     socket.on('playCard', ({ instanceId, actionTarget, targetPlayerId, attackCount }) => {
@@ -491,23 +506,8 @@ io.on('connection', (socket) => {
             player.invincibleSource = 'ARMOR';
             player.hand.splice(cardIndex, 1);
 
-            socket.emit('syncGameState', {
-                players: gameState.players,
-                turnOrder: gameState.turnOrder,
-                currentTurnPlayerId: gameState.currentTurnPlayerId,
-                round: gameState.round,
-                turnPhase: gameState.turnPhase,
-                log: `「無敵アーマー」を使用しました。4ターンの間「無敵状態」になります。`
-            });
-
-            socket.broadcast.emit('syncGameState', {
-                players: gameState.players,
-                turnOrder: gameState.turnOrder,
-                currentTurnPlayerId: gameState.currentTurnPlayerId,
-                round: gameState.round,
-                turnPhase: gameState.turnPhase,
-                log: ''
-            });
+            socket.emit('syncGameState', getSyncPayload(`「無敵アーマー」を使用しました。4ターンの間「無敵状態」になります。`));
+            socket.broadcast.emit('syncGameState', getSyncPayload(''));
         } else if (card.id === 'dark_matter') {
             player.hand.splice(cardIndex, 1);
             executeDarkMatter(socket.id);
@@ -515,23 +515,8 @@ io.on('connection', (socket) => {
             player.steroidTurns = 4;
             player.hand.splice(cardIndex, 1);
 
-            socket.emit('syncGameState', {
-                players: gameState.players,
-                turnOrder: gameState.turnOrder,
-                currentTurnPlayerId: gameState.currentTurnPlayerId,
-                round: gameState.round,
-                turnPhase: gameState.turnPhase,
-                log: `「ステロイド」を使用しました。4ターンの間「ステロイド状態」になります。`
-            });
-
-            socket.broadcast.emit('syncGameState', {
-                players: gameState.players,
-                turnOrder: gameState.turnOrder,
-                currentTurnPlayerId: gameState.currentTurnPlayerId,
-                round: gameState.round,
-                turnPhase: gameState.turnPhase,
-                log: ''
-            });
+            socket.emit('syncGameState', getSyncPayload(`「ステロイド」を使用しました。4ターンの間「ステロイド状態」になります。`));
+            socket.broadcast.emit('syncGameState', getSyncPayload(''));
         } else if (card.id === 'smoke_screen') {
             player.hand.splice(cardIndex, 1);
             executeSmokeScreen(socket.id);
@@ -574,14 +559,7 @@ io.on('connection', (socket) => {
                     return;
                 }
 
-                if (gameState.round === 1) {
-                    const myOrderIndex = gameState.turnOrder.indexOf(socket.id);
-                    const targetOrderIndex = gameState.turnOrder.indexOf(targetPlayerId);
-                    if (targetOrderIndex > myOrderIndex) {
-                        socket.emit('errorMessage', '1巡目は自分より後に行動するプレイヤーを攻撃できません。');
-                        return;
-                    }
-                }
+                if (emitIfCannotSelectRound1Target(socket, socket.id, targetPlayerId)) return;
 
                 if (card.id === 'wood_sword') {
                     player.hand.splice(cardIndex, 1);
@@ -673,14 +651,7 @@ io.on('connection', (socket) => {
             return;
         }
 
-        if (gameState.round === 1) {
-            const myOrderIndex = gameState.turnOrder.indexOf(socket.id);
-            const targetOrderIndex = gameState.turnOrder.indexOf(targetPlayerId);
-            if (targetOrderIndex > myOrderIndex) {
-                socket.emit('errorMessage', '1巡目は自分より後に行動するプレイヤーを攻撃できません。');
-                return;
-            }
-        }
+        if (emitIfCannotSelectRound1Target(socket, socket.id, targetPlayerId)) return;
 
         if (card.id === 'wood_shield_set') {
             const requestedCount = Math.min(Math.max(Number(attackCount) || 1, 1), 3);
@@ -768,15 +739,12 @@ function executeWoodShieldGroupAttack(attackerId, groupType) {
     if (!attacker) return;
 
     const myScore = attacker.score;
-    const myOrderIndex = gameState.turnOrder.indexOf(attackerId);
 
     let candidates = Object.values(gameState.players).filter(p => {
         if (p.id === attackerId) return false;
         if (p.immunityCount && p.immunityCount > 0) return false;
-        if (gameState.round === 1) {
-            const pOrderIndex = gameState.turnOrder.indexOf(p.id);
-            if (pOrderIndex > myOrderIndex) return false;
-        }
+        if (cannotSelectAsAttackTargetInRound1(attackerId, p.id)) return false;
+
         if (groupType === 'EQUAL_OR_HIGHER') {
             return p.score >= myScore;
         } else if (groupType === 'LOWER') {
@@ -817,6 +785,11 @@ function executeWoodShieldGroupAttack(attackerId, groupType) {
 
         const target = gameState.players[attackQueue[index].id];
         if (!target) {
+            processQueue(index + 1);
+            return;
+        }
+
+        if (skipIfImmuneToRound1CardEffect(target, attacker, '「木の盾」攻撃')) {
             processQueue(index + 1);
             return;
         }
@@ -885,16 +858,13 @@ function executeShieldSetGroupAttack(attackerId, groupType, cardObj, maxAttacks,
     }
 
     const myScore = attacker.score;
-    const myOrderIndex = gameState.turnOrder.indexOf(attackerId);
 
     function getCandidates() {
         return Object.values(gameState.players).filter(p => {
             if (p.id === attackerId) return false;
             if (p.immunityCount && p.immunityCount > 0) return false;
-            if (gameState.round === 1) {
-                const pOrderIndex = gameState.turnOrder.indexOf(p.id);
-                if (pOrderIndex > myOrderIndex) return false;
-            }
+            if (cannotSelectAsAttackTargetInRound1(attackerId, p.id)) return false;
+
             if (groupType === 'EQUAL_OR_HIGHER') {
                 return p.score >= myScore;
             } else if (groupType === 'LOWER') {
@@ -948,6 +918,11 @@ function executeShieldSetGroupAttack(attackerId, groupType, cardObj, maxAttacks,
 
             const target = gameState.players[attackQueue[index].id];
             if (!target) {
+                processQueue(index + 1);
+                return;
+            }
+
+            if (skipIfImmuneToRound1CardEffect(target, attacker, '「木の盾セット」攻撃')) {
                 processQueue(index + 1);
                 return;
             }
@@ -1022,6 +997,9 @@ function executeShieldSetGroupAttack(attackerId, groupType, cardObj, maxAttacks,
 function executeStandardAttack(attackerId, targetId, cardId) {
     const attacker = gameState.players[attackerId];
     const target = gameState.players[targetId];
+
+    if (skipIfImmuneToRound1CardEffect(target, attacker, '攻撃')) return;
+
     const cardName = cardId === 'wood_sword' ? '木の剣' : '木の盾';
     const isSteroid = target.steroidTurns && target.steroidTurns > 0;
     let logPrefix = `P${attacker.number} が P${target.number} に「${cardName}」で攻撃！ `;
@@ -1094,11 +1072,12 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
             const lowerPlayers = currentPlayers.filter(p =>
                 p.score < currentAttackerScore &&
                 !attackedPlayerIds.has(p.id) &&
-                (!p.immunityCount || p.immunityCount <= 0)
+                (!p.immunityCount || p.immunityCount <= 0) &&
+                !cannotSelectAsAttackTargetInRound1(attackerId, p.id)
             );
             if (lowerPlayers.length === 0) {
                 if (attackedPlayerIds.size === 0) {
-                    broadcastGameState(`P${attacker.number} が「木の剣」を使用しましたが、自分より下の順位のプレイヤーがいませんでした。`);
+                    broadcastGameState(`P${attacker.number} が「木の剣」を使用しましたが、対象となる下位プレイヤーがいませんでした。`);
                 }
                 return;
             }
@@ -1110,6 +1089,11 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
 
             const target = topGroup[Math.floor(Math.random() * topGroup.length)];
             attackedPlayerIds.add(target.id);
+
+            if (skipIfImmuneToRound1CardEffect(target, attacker, '「木の剣」攻撃')) {
+                setTimeout(processNextLowerTarget, 500);
+                return;
+            }
 
             const isSteroid = target.steroidTurns && target.steroidTurns > 0;
             let logPrefix = `P${attacker.number} の「木の剣」攻撃 (対象: P${target.number})！ `;
@@ -1165,6 +1149,8 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
 
     const target = gameState.players[targetTypeOrId];
     if (!target) return;
+
+    if (skipIfImmuneToRound1CardEffect(target, attacker, '「木の剣」攻撃')) return;
 
     const isSteroid = target.steroidTurns && target.steroidTurns > 0;
     const scoreDiff = target.score - attacker.score;
@@ -1225,6 +1211,11 @@ function executeWoodSwordAttack(attackerId, targetTypeOrId) {
 function executeShieldSetAttack(attackerId, targetId, cardObj, maxAttacks, onComplete) {
     const attacker = gameState.players[attackerId];
     const target = gameState.players[targetId];
+
+    if (skipIfImmuneToRound1CardEffect(target, attacker, '「木の盾セット」攻撃')) {
+        onComplete();
+        return;
+    }
 
     const hitRate = getWoodShieldHitRate(attacker.score, target.score);
     const isSteroid = target.steroidTurns && target.steroidTurns > 0;
@@ -1322,6 +1313,8 @@ function executeDisasterAttack(casterSocketId) {
         Object.values(gameState.players).forEach(player => {
             if (player.id === casterSocketId) return;
 
+            if (isImmuneToRound1CardEffect(player.id, casterSocketId)) return;
+
             const rank = rankMap[player.id];
             const damage = damageByRank[rank] || 0;
 
@@ -1345,7 +1338,7 @@ function executeDisasterAttack(casterSocketId) {
             }
         });
 
-        broadcastGameState(`P${caster.number} が「大災害」を発動！(無敵状態のプレイヤーはダメージ・カード破棄を無効化)`);
+        broadcastGameState(`P${caster.number} が「大災害」を発動！(無敵状態または1巡目の後行プレイヤーは影響を受けません)`);
 
     }, 2000);
 }
@@ -1362,15 +1355,11 @@ function executeDarkMatter(casterSocketId) {
     const newMyScore = player.score;
 
     const penalizedNames = [];
-    const myOrderIndex = gameState.turnOrder.indexOf(casterSocketId);
 
     Object.values(gameState.players).forEach(opponent => {
         if (opponent.id === player.id) return;
 
-        if (gameState.round === 1) {
-            const opponentOrderIndex = gameState.turnOrder.indexOf(opponent.id);
-            if (opponentOrderIndex > myOrderIndex) return;
-        }
+        if (isImmuneToRound1CardEffect(opponent.id, casterSocketId)) return;
 
         const isInvincible = opponent.invincibleTurns && opponent.invincibleTurns > 0;
         const isImmune = opponent.immunityCount && opponent.immunityCount > 0;
@@ -1408,16 +1397,12 @@ function executeSmokeScreen(casterSocketId) {
     if (!caster) return;
 
     const myScore = caster.score;
-    const myOrderIndex = gameState.turnOrder.indexOf(casterSocketId);
 
     const opponents = Object.values(gameState.players).filter(p => p.id !== casterSocketId);
 
     const targets = opponents.filter(p => {
         if (p.score < myScore) return false;
-        if (gameState.round === 1) {
-            const pOrderIndex = gameState.turnOrder.indexOf(p.id);
-            if (pOrderIndex > myOrderIndex) return false;
-        }
+        if (isImmuneToRound1CardEffect(p.id, casterSocketId)) return false;
         return true;
     });
 
