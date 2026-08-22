@@ -70,7 +70,7 @@ const CARD_DECK = [
         name: '煙幕',
         category: 'ATTACK',
         image: '/images/smoke_screen.png',
-        desc: '自分以上の得点を持つ相手全員に-1000点＆暗闇状態(1ターン)を付与。該当者がいない場合は自分自身に-1000点＆暗闇状態(2ターン)を付与。'
+        desc: '自分以上の得点を持つ相手全員に-1000点＆暗闇状態(対象が1位なら2T/それ以外1T)を付与。該当者がいない場合は自身に効果発動。'
     }
 ];
 
@@ -1338,7 +1338,7 @@ function executeDisasterAttack(casterSocketId) {
             }
         });
 
-        broadcastGameState(`P${caster.number} が「大災害」を発動！(無敵状態または1巡目の後行プレイヤーは影響を受けません)`);
+        broadcastGameState(`P${caster.number} が「大災害」を発動！`);
 
     }, 2000);
 }
@@ -1396,9 +1396,16 @@ function executeSmokeScreen(casterSocketId) {
     const caster = gameState.players[casterSocketId];
     if (!caster) return;
 
-    const myScore = caster.score;
+    // 現在の順位を算出（同点の場合は同順位）
+    const playersArr = Object.values(gameState.players);
+    const rankMap = {};
+    playersArr.forEach(p => {
+        const higherCount = playersArr.filter(other => other.score > p.score).length;
+        rankMap[p.id] = higherCount + 1;
+    });
 
-    const opponents = Object.values(gameState.players).filter(p => p.id !== casterSocketId);
+    const myScore = caster.score;
+    const opponents = playersArr.filter(p => p.id !== casterSocketId);
 
     const targets = opponents.filter(p => {
         if (p.score < myScore) return false;
@@ -1408,6 +1415,7 @@ function executeSmokeScreen(casterSocketId) {
 
     if (targets.length > 0) {
         const affectedNames = [];
+        let anySuccess = false;
 
         targets.forEach(target => {
             const isInvincible = target.invincibleTurns && target.invincibleTurns > 0;
@@ -1418,16 +1426,37 @@ function executeSmokeScreen(casterSocketId) {
                 return;
             }
 
+            anySuccess = true;
             applyScoreChange(target, -1000);
-            target.darknessTurns = 1;
-            affectedNames.push(`P${target.number}`);
+
+            // 1位なら2ターン、それ以外なら1ターン
+            const rank = rankMap[target.id];
+            const turns = (rank === 1) ? 2 : 1;
+            target.darknessTurns = turns;
+
+            affectedNames.push(`P${target.number}(${turns}T)`);
         });
 
-        broadcastGameState(`P${caster.number} が「煙幕」を使用！ 対象: ${affectedNames.join(', ')} (-1000点 & 暗闇1ターン付与)`);
+        const statusSuffix = anySuccess ? " (-1000点 & 暗闇付与)" : "";
+        broadcastGameState(`P${caster.number} が「煙幕」を使用！ 対象: ${affectedNames.join(', ')}${statusSuffix}`);
     } else {
+        // 使用者自身への跳ね返り判定
+        const isInvincible = caster.invincibleTurns && caster.invincibleTurns > 0;
+        const isSteroid = caster.steroidTurns && caster.steroidTurns > 0;
+
+        if (isInvincible || isSteroid) {
+            broadcastGameState(`P${caster.number} が「煙幕」を使用！ 該当する相手がいないため自身に効果が跳ね返りましたが、無敵またはステロイド状態のため無効化されました。`);
+            return;
+        }
+
         applyScoreChange(caster, -1000);
-        caster.darknessTurns = 2;
-        broadcastGameState(`P${caster.number} が「煙幕」を使用！ 該当する相手がいないため自身に効果発動 (-1000点 & 暗闇2ターン付与)`);
+
+        // 使用者自身が対象の場合も、その時点の順位で判定
+        const myRank = rankMap[caster.id];
+        const turns = (myRank === 1) ? 2 : 1;
+        caster.darknessTurns = turns;
+
+        broadcastGameState(`P${caster.number} が「煙幕」を使用！ 該当する相手がいないため自身に効果発動 (-1000点 & 暗闇${turns}ターン付与)`);
     }
 }
 
